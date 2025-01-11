@@ -3,20 +3,22 @@ use crate::state::{Agent, Game};
 use crate::error::GameError;
 use crate::constants::*;
 
-/// Creates (initializes) a new Agent account on-chain.
+/// Example: create an Agent. 
+/// 
+/// If `agent_id` is a single byte, seeds = [b"agent", game.key().as_ref(), &[agent_id]] 
+/// is a 5 + 32 + 1 = 38-byte seed array. That’s fine.
 pub fn initialize_agent(
     ctx: Context<InitializeAgent>,
-    agent_id: u8,
+    agent_id: u8,  // single byte
     x: i32,
     y: i32
 ) -> Result<()> {
     let agent_account = &mut ctx.accounts.agent;
     let game_account = &ctx.accounts.game;
 
-    // Ensure the Game is active
+    // If the game is not active, error
     require!(game_account.is_active, GameError::ReentrancyGuard);
 
-    // Populate the Agent's fields
     agent_account.game = game_account.key();
     agent_account.authority = ctx.accounts.authority.key();
     agent_account.id = agent_id;
@@ -37,12 +39,9 @@ pub fn initialize_agent(
     Ok(())
 }
 
-/// Defines the `InitializeAgent` instruction context.
 #[derive(Accounts)]
 #[instruction(agent_id: u8, x: i32, y: i32)]
 pub struct InitializeAgent<'info> {
-    /// Reference to the Game account (must already exist).
-    /// We also ensure the game has the same authority that is signing.
     #[account(
         mut,
         has_one = authority,
@@ -50,24 +49,24 @@ pub struct InitializeAgent<'info> {
     )]
     pub game: Account<'info, Game>,
 
-    /// The new Agent account, created with a PDA seed.
+    /// We create the Agent account with seeds:
+    ///   [ b"agent", game.key().as_ref(), &[agent_id] ]
+    /// if agent_id is a single byte
     #[account(
         init,
         payer = authority,
         seeds = [
             b"agent",
-            &game.key().to_bytes(),
-            &[agent_id]
+            game.key().as_ref(),
+            &[agent_id],          // 1 byte if agent_id is a `u8`
         ],
         bump,
         space = 8 + Agent::INIT_SPACE
     )]
     pub agent: Account<'info, Agent>,
 
-    /// The user signing to create this Agent.
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// Needed to initialize new accounts.
     pub system_program: Program<'info, System>,
 }

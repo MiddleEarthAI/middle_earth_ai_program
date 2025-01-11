@@ -1,50 +1,51 @@
+// ----------------------
+// instructions/game.rs
+// ----------------------
 use anchor_lang::prelude::*;
-use crate::state::Game;       // Import the data model from state/game.rs
-use crate::error::GameError;  // If you have custom errors
-use crate::constants::*;      // If you have config constants
+use crate::state::Game;
+use crate::error::GameError;
+use crate::constants::*;
 
-/// Instruction handler to create (initialize) a new Game account.
-pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u64) -> Result<()> {
+// The instruction now has 3 parameters: (1) `game_id`, (2) `bump`, (3) ctx
+pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> Result<()> {
     let game_account = &mut ctx.accounts.game;
-    
-    // A simple guard: if the game is already active, we can return an error
+
+    // Example check
     require!(!game_account.is_active, GameError::ReentrancyGuard);
 
-    // Set fields
-    game_account.game_id        = game_id;
-    game_account.authority      = *ctx.accounts.authority.key;
-    game_account.map_diameter   = MAP_DIAMETER;  // from constants
-    game_account.battle_range   = BATTLE_RANGE;  // from constants
-    game_account.is_active      = true;
-    game_account.last_update    = Clock::get()?.unix_timestamp;
+    game_account.game_id = game_id as u64; // If you want to store it as u64 inside Game
+    game_account.authority = ctx.accounts.authority.key();
+    game_account.map_diameter = MAP_DIAMETER;
+    game_account.battle_range = BATTLE_RANGE;
+    game_account.is_active = true;
+    game_account.last_update = Clock::get()?.unix_timestamp;
     game_account.reentrancy_guard = false;
 
-    // The `bump` is retrieved from Anchor’s `ctx.bumps` map
-    // if you used seeds = [b"game", &game_id.to_le_bytes()], bump
-    game_account.bump = *ctx.bumps.get("game").unwrap();
+    // Set the bump that was passed in
+    game_account.bump = bump;
 
     Ok(())
 }
 
-/// The `#[derive(Accounts)]` struct defines which accounts must be provided 
-/// to call `initialize_game` on-chain.
 #[derive(Accounts)]
-#[instruction(game_id: u64)]
+#[instruction(game_id: u32, bump: u8)]
 pub struct InitializeGame<'info> {
-    /// The new Game account, created via PDA seeds.
     #[account(
         init,
         payer = authority,
-        seeds = [b"game", &game_id.to_le_bytes()],
-        bump,
+        // Seeds: 4 bytes if `game_id` is `u32`
+        // Anchor will match the `bump` you pass in the instruction
+        seeds = [
+            b"game",
+            &game_id.to_le_bytes()
+        ],
+        bump,                        // We match the "bump" argument here
         space = 8 + Game::INIT_SPACE
     )]
     pub game: Account<'info, Game>,
 
-    /// The user who is paying rent + fees (and presumably controlling the Game).
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// Required program to create system accounts
     pub system_program: Program<'info, System>,
 }
