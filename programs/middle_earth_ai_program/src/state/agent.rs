@@ -53,8 +53,9 @@ pub struct Agent {
     pub total_shares: u128,
 }
 
+// Helper methods on the Agent data structure
 impl Agent {
-    // Validate if movement is allowed
+    /// Checks if movement is allowed based on cooldown, map size, etc.
     pub fn validate_movement(
         &self,
         new_x: i32,
@@ -79,17 +80,18 @@ impl Agent {
         Ok(())
     }
 
-    // Validate that the agent can do an action (e.g. start a battle)
+    /// Checks if the Agent can start a new action (e.g., battle)
     pub fn validate_state(&self, timestamp: i64) -> Result<()> {
+        // Must be alive
         require!(self.is_alive, GameError::AgentNotAlive);
 
-        // Ensure no battle is in progress
+        // Ensure no battle is currently in progress
         require!(
             self.current_battle_start.is_none(),
             GameError::BattleInProgress
         );
 
-        // Check battle cooldown
+        // Verify battle cooldown
         require!(
             timestamp >= self.last_battle + BATTLE_COOLDOWN,
             GameError::BattleCooldown
