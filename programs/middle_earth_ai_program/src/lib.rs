@@ -16,20 +16,45 @@ use instructions::*;
 pub mod middle_earth_ai_program {
     use super::*;
 
-    /// Expose the initialize_game instruction.
-    /// Note: This function now requires a `bump: u8` parameter.
     pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> Result<()> {
-        // This calls the implementation in instructions/game.rs.
         game::initialize_game(ctx, game_id, bump)
     }
 
-    /// Expose the initialize_agent instruction.
     pub fn initialize_agent(ctx: Context<InitializeAgent>, agent_id: u8, x: i32, y: i32) -> Result<()> {
-        // This calls the implementation in instructions/agent.rs.
         agent::initialize_agent(ctx, agent_id, x, y)
     }
 
-    // You can add additional instructions here.
+    pub fn move_agent(ctx: Context<MoveAgent>, new_x: i32, new_y: i32) -> Result<()> {
+        movement::move_agent(ctx, new_x, new_y)
+    }
+
+    pub fn initiate_battle(ctx: Context<InitiateBattle>) -> Result<()> {
+        battle::initiate_battle(ctx)
+    }
+
+    pub fn form_alliance(ctx: Context<FormAlliance>, target_agent_id: u8) -> Result<()> {
+        alliance::form_alliance(ctx, target_agent_id)
+    }
+
+    pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
+        alliance::break_alliance(ctx)
+    }
+
+    pub fn ignore_agent(ctx: Context<IgnoreAgent>, target_agent_id: u8) -> Result<()> {
+        ignore::ignore_agent(ctx, target_agent_id)
+    }
+
+    pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> Result<()> {
+        token::stake_tokens(ctx, amount)
+    }
+
+    pub fn unstake_tokens(ctx: Context<UnstakeTokens>, amount: u64) -> Result<()> {
+        token::unstake_tokens(ctx, amount)
+    }
+
+    pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
+        token::claim_staking_rewards(ctx)
+    }
 }
 
 #[derive(Accounts)]
