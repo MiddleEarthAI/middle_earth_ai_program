@@ -41,8 +41,6 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
         .checked_add(shares_to_mint)
         .ok_or_else(|| error!(GameError::NotEnoughTokens))?;
 
-    // (Optional) Store the bump for stake_info if desired.
-    // stake_info.bump = *ctx.bumps.get("stake_info").unwrap();
 
     Ok(())
 }
