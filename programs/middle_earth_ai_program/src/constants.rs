@@ -32,4 +32,4 @@ pub const MIN_REWARD_RATE: f64 = 0.05;
 pub const MAX_REWARD_RATE: f64 = 0.2;
 pub const REWARD_CLAIM_COOLDOWN: i64 = 86400; // 24 hours
 
-pub const BATTLE_DURATION: i64 = 300; // 5 minutes
+pub const DAILY_REWARD_RATE: f64 = 0.1; 

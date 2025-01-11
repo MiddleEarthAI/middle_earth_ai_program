@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+pub use instructions::token::*;
 
 pub mod constants;
 pub mod error;
