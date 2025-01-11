@@ -6,7 +6,7 @@ declare_id!("FE7WJhRY55XjHcR22ryA3tHLq6fkDNgZBpbh25tto67Q");
 pub mod constants;
 pub mod error;
 pub mod events;
-
+pub mod state;
 #[program]
 pub mod middle_earth_ai_program {
     use super::*;
