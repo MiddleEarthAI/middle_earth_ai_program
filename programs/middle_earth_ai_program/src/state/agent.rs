@@ -35,7 +35,7 @@ pub struct Agent {
     pub current_battle_start: Option<i64>, 
     
     // Alliance/ignore info
-    pub alliance_with: Option<u8>,     // ID of agent allied with
+    pub alliance_with: Option<Pubkey>,     // ID of agent allied with
     pub alliance_timestamp: i64,       // When alliance was formed
     #[max_len(32)]
     pub ignore_cooldowns: Vec<IgnoreCooldown>, // Agents being ignored

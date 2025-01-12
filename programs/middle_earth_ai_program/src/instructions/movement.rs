@@ -12,13 +12,12 @@ pub fn move_agent(
     terrain: TerrainType,
 ) -> Result<()> {
     let agent = &mut ctx.accounts.agent;
-    let _game = &ctx.accounts.game; // game can be used for additional validations if needed
+    let _game = &ctx.accounts.game; 
     let now = Clock::get()?.unix_timestamp;
 
     // Validate that movement is allowed (i.e. that the cooldown has expired).
     agent.validate_movement(now)?;
 
-    // Optionally, store the old position for events.
     let old_x = agent.x;
     let old_y = agent.y;
 

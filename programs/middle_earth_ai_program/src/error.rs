@@ -24,12 +24,21 @@ pub enum GameError {
     ClaimCooldown,
     #[msg("Invalid terrain movement.")]
     InvalidTerrain,
-    #[msg("Invalid token transfer")]
+    #[msg("Invalid token transfer.")]
     TokenTransferError,
-    #[msg("Insufficient Funds Provided")]
+    #[msg("Insufficient Funds Provided.")]
     InsufficientFunds,
-    #[msg("Unauthorized User")]
+    #[msg("Unauthorized User.")]
     Unauthorized, 
-    #[msg("Cooldown is still active")]
+    #[msg("Cooldown is still active.")]
     IgnoreCooldown, 
+
+    #[msg("Invalid alliance partner.")]
+    InvalidAlliancePartner,
+    #[msg("An active alliance already exists.")]
+    AllianceAlreadyExists,
+    #[msg("No active alliance to break.")]
+    NoAllianceToBreak,
+    #[msg("Alliance record not found.")]
+    AllianceNotFound,
 }

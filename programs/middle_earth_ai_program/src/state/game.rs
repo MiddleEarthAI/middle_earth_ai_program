@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use std::mem::size_of; // Optional if you want to compute sizes dynamically
 
 /// The global game state, storing high-level config and status.
 #[account]
@@ -14,4 +15,24 @@ pub struct Game {
     pub last_update: i64,       // Timestamp of last game state update
     pub reentrancy_guard: bool, // Guard against reentrancy attacks
     pub bump: u8,               // PDA bump seed
+    #[max_len(5)]              // Maximum number of alliances (adjust as needed)
+    pub alliances: Vec<Alliance>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
+pub struct Alliance {
+    pub agent1: Pubkey,      // The pubkey of agent #1
+    pub agent2: Pubkey,      // The pubkey of agent #2
+    pub formed_at: i64,      // Timestamp when the alliance was formed
+    pub is_active: bool,     // Whether the alliance is currently active
+}
+
+// Implement the Space trait for Alliance so Anchor can calculate its on-chain size.
+// In your version, the required associated constant is `INIT_SPACE`.
+impl Space for Alliance {
+    // You can compute the size using either literals or `size_of` from std::mem.
+    // Two Pubkeys (32 bytes each) + one i64 (8 bytes) + one bool (1 byte) = 32 + 32 + 8 + 1 = 73 bytes.
+    const INIT_SPACE: usize = 32 + 32 + 8 + 1;
+    // Alternatively, you could write:
+    // const INIT_SPACE: usize = (size_of::<Pubkey>() * 2) + size_of::<i64>() + size_of::<bool>();
 }

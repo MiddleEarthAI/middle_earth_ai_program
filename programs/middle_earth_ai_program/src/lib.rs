@@ -40,8 +40,8 @@ pub mod middle_earth_ai_program {
         battle::resolve_battle(ctx, transfer_amount)
     }
     
-    pub fn form_alliance(ctx: Context<FormAlliance>, target_agent_id: u8) -> Result<()> {
-        alliance::form_alliance(ctx, target_agent_id)
+    pub fn form_alliance(ctx: Context<FormAlliance>) -> Result<()> {
+        alliance::form_alliance(ctx)
     }
 
     pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
