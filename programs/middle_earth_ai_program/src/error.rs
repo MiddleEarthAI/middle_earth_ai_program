@@ -24,5 +24,10 @@ pub enum GameError {
     ClaimCooldown,
     #[msg("Invalid terrain movement.")]
     InvalidTerrain,
-    // Add more as needed
+    #[msg("Invalid token transfer")]
+    TokenTransferError,
+    #[msg("Insufficient Funds Provided")]
+    InsufficientFunds,
+    #[msg("Unauthorized User")]
+    Unauthorized
 }

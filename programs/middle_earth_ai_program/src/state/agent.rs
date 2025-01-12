@@ -47,12 +47,14 @@ pub struct Agent {
     pub ignore_cooldowns: Vec<IgnoreCooldown>, // Agents being ignored
     
     // Token/staking info
-    pub token_balance: u64,
-    pub staked_balance: u64,
-    pub last_reward_claim: i64,
-    pub total_shares: u128,
-}
+    pub token_balance: u64,            // Deprecated if querying real-time vault balance
+    pub staked_balance: u64,           // Total tokens staked
+    pub last_reward_claim: i64,        // Last reward claim timestamp
+    pub total_shares: u64,            // Total shares representing staking pool ownership
 
+    // PDA-related info
+    pub vault_bump: u8,                // Bump seed for the PDA representing the agent's vault
+}
 // Helper methods on the Agent data structure
 impl Agent {
     /// Checks if movement is allowed based on cooldown, map size, etc.

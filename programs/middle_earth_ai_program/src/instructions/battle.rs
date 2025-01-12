@@ -1,44 +1,75 @@
 use anchor_lang::prelude::*;
 use crate::state::{Agent, Game};
 use crate::error::GameError;
-use crate::events::*;
-use crate::constants::*;
+use crate::events::*; // Ensure BattleResolved event is defined in your events module.
 
-pub fn initiate_battle(ctx: Context<InitiateBattle>) -> Result<()> {
-    let attacker = &mut ctx.accounts.attacker;
-    let defender = &mut ctx.accounts.defender;
-    let now = Clock::get()?.unix_timestamp;
+/// Called by the owner address (e.g., Game authority) after offchain resolution 
+/// has determined the winner, loser, and transfer_amount.
+/// 
+/// This function subtracts `transfer_amount` from the loser's token balance
+/// and adds it to the winner's token balance.
+pub fn resolve_battle(
+    ctx: Context<ResolveBattle>,
+    transfer_amount: u64,
+) -> Result<()> {
+    let authority = &ctx.accounts.authority;
+    let game = &ctx.accounts.game;
 
-    // Validate states, ensure neither side is already in battle or dead
-    attacker.validate_state(now)?;
-    defender.validate_state(now)?;
+    // Access control: Only the game owner (or designated authority) can resolve a battle.
+    require!(authority.key() == game.authority, GameError::Unauthorized);
 
-    // Mark them as in a battle
-    attacker.current_battle_start = Some(now);
-    defender.current_battle_start = Some(now);
+    let winner = &mut ctx.accounts.winner;
+    let loser = &mut ctx.accounts.loser;
 
-    // Emit an event
-    emit!(BattleInitiated {
-        agent_id: attacker.id,
-        opponent_agent_id: defender.id,
+    // Check that the loser has sufficient funds.
+    require!(
+        loser.token_balance >= transfer_amount,
+        GameError::InsufficientFunds
+    );
+
+    // Update balances.
+    loser.token_balance = loser
+        .token_balance
+        .checked_sub(transfer_amount)
+        .ok_or(GameError::TokenTransferError)?;
+    winner.token_balance = winner
+        .token_balance
+        .checked_add(transfer_amount)
+        .ok_or(GameError::TokenTransferError)?;
+
+    // Optionally, update battle-related timestamps or state fields
+    // (for example, you might want to clear current_battle_start, etc.)
+
+    // Emit an event to signal the battle resolution.
+    emit!(BattleResolved {
+        winner_id: winner.id,
+        loser_id: loser.id,
+        transfer_amount,
     });
-
-    // TODO: Add real logic for calculating a winner, burning tokens, etc.
-    // Possibly break out of battle afterwards or store results.
 
     Ok(())
 }
 
+/// Context for resolving a battle outcome.
 #[derive(Accounts)]
-pub struct InitiateBattle<'info> {
-    #[account(mut, has_one = game, has_one = authority)]
-    pub attacker: Account<'info, Agent>,
+pub struct ResolveBattle<'info> {
+    // The winner of the battle.
+    #[account(
+        mut,
+        has_one = game, 
+        // The winner's authority relation can be checked here if necessary;
+        // however, in this case, we rely on the game's authority.
+    )]
+    pub winner: Account<'info, Agent>,
 
+    // The loser of the battle.
     #[account(mut, has_one = game)]
-    pub defender: Account<'info, Agent>,
+    pub loser: Account<'info, Agent>,
 
+    // The global game state; its authority field is used for access control.
     pub game: Account<'info, Game>,
 
+    // The authority (owner) calling the function.
     #[account(mut)]
     pub authority: Signer<'info>,
 }

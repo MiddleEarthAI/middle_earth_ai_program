@@ -29,10 +29,10 @@ pub mod middle_earth_ai_program {
         movement::move_agent(ctx, new_x, new_y)
     }
 
-    pub fn initiate_battle(ctx: Context<InitiateBattle>) -> Result<()> {
-        battle::initiate_battle(ctx)
+    pub fn resolve_battle(ctx: Context<ResolveBattle>, transfer_amount: u64) -> Result<()> {
+        battle::resolve_battle(ctx, transfer_amount)
     }
-
+    
     pub fn form_alliance(ctx: Context<FormAlliance>, target_agent_id: u8) -> Result<()> {
         alliance::form_alliance(ctx, target_agent_id)
     }

@@ -58,7 +58,7 @@ pub struct InitializeAgent<'info> {
         seeds = [
             b"agent",
             game.key().as_ref(),
-            &[agent_id],          // 1 byte if agent_id is a `u8`
+            &[agent_id],          
         ],
         bump,
         space = 8 + Agent::INIT_SPACE

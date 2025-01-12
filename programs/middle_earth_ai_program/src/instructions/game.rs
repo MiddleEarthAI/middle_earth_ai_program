@@ -1,6 +1,4 @@
-// ----------------------
-// instructions/game.rs
-// ----------------------
+
 use anchor_lang::prelude::*;
 use crate::state::Game;
 use crate::error::GameError;
@@ -13,7 +11,7 @@ pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> 
     // Example check
     require!(!game_account.is_active, GameError::ReentrancyGuard);
 
-    game_account.game_id = game_id as u64; // If you want to store it as u64 inside Game
+    game_account.game_id = game_id as u64; 
     game_account.authority = ctx.accounts.authority.key();
     game_account.map_diameter = MAP_DIAMETER;
     game_account.battle_range = BATTLE_RANGE;
