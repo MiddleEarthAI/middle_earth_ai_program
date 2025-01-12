@@ -1,12 +1,13 @@
+// battle.rs
 use anchor_lang::prelude::*;
 use crate::state::{Agent, Game};
 use crate::error::GameError;
 use crate::events::*; // Make sure BattleResolved is defined in your events module
-use crate::agent::*; // Import functions like validate_attack
+use crate::agent::*; // For validate_attack
 
-/// Resolve a battle outcome after off-chain determination.
+/// Resolve a battle outcome.
 /// This function subtracts `transfer_amount` from the loser and adds it to the winner.
-/// It also enforces that the winner’s attack cooldown (4 hours) has passed.
+/// It also enforces that the winner’s attack cooldown has passed.
 pub fn resolve_battle(
     ctx: Context<ResolveBattle>,
     transfer_amount: u64,
@@ -21,16 +22,16 @@ pub fn resolve_battle(
     let loser = &mut ctx.accounts.loser;
 
     let now = Clock::get()?.unix_timestamp;
-    // Ensure the winner can attack (attack cooldown of 4 hours).
+    // Ensure the winner is off cooldown.
     winner.validate_attack(now)?;
 
-    // Check if the loser has sufficient funds.
+    // Check that the loser has sufficient funds.
     require!(
         loser.token_balance >= transfer_amount,
         GameError::InsufficientFunds
     );
 
-    // Update balances.
+    // Update token balances.
     loser.token_balance = loser
         .token_balance
         .checked_sub(transfer_amount)
@@ -40,7 +41,7 @@ pub fn resolve_battle(
         .checked_add(transfer_amount)
         .ok_or(GameError::TokenTransferError)?;
 
-    // Update the winner's last_attack timestamp.
+    // Update the winner's last_attack timestamp (starting the cooldown).
     winner.last_attack = now;
 
     emit!(BattleResolved {
@@ -52,7 +53,7 @@ pub fn resolve_battle(
     Ok(())
 }
 
-/// A version for when the battle is part of an alliance challenge (logic similar here).
+/// Same as above for alliance battles.
 pub fn resolve_battle_agent_alliance(
     ctx: Context<ResolveBattle>,
     transfer_amount: u64,

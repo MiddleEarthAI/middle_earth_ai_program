@@ -1,3 +1,4 @@
+// ignore.rs
 use anchor_lang::prelude::*;
 use crate::state::{Agent, Game, IgnoreCooldown};
 use crate::error::GameError;
@@ -7,7 +8,7 @@ pub fn ignore_agent(ctx: Context<IgnoreAgent>, target_agent_id: u8) -> Result<()
     let agent = &mut ctx.accounts.agent;
     let now = Clock::get()?.unix_timestamp;
 
-    // Validate that the ignore action is off cooldown (4-hour cooldown)
+    // Validate that the ignore action cooldown has passed.
     agent.validate_ignore(now)?;
 
     // Record the ignore action.
@@ -17,7 +18,7 @@ pub fn ignore_agent(ctx: Context<IgnoreAgent>, target_agent_id: u8) -> Result<()
     };
     agent.ignore_cooldowns.push(cooldown);
 
-    // Update the last_ignore timestamp.
+    // Update the last_ignore timestamp (thereby starting the cooldown).
     agent.last_ignore = now;
 
     Ok(())
