@@ -50,6 +50,44 @@ pub fn resolve_battle(
     Ok(())
 }
 
+pub fn resolve_battle_agent_alliance(
+    ctx: Context<ResolveBattle>,
+    transfer_amount: u64,
+) -> Result<()> {
+    let authority = &ctx.accounts.authority;
+    let game = &ctx.accounts.game;
+
+    require!(authority.key() == game.authority, GameError::Unauthorized);
+
+    let winner = &mut ctx.accounts.winner;
+    let loser = &mut ctx.accounts.loser;
+
+    // Check that the loser has sufficient funds.
+    require!(
+        loser.token_balance >= transfer_amount,
+        GameError::InsufficientFunds
+    );
+
+    // Update balances.
+    loser.token_balance = loser
+        .token_balance
+        .checked_sub(transfer_amount)
+        .ok_or(GameError::TokenTransferError)?;
+    winner.token_balance = winner
+        .token_balance
+        .checked_add(transfer_amount)
+        .ok_or(GameError::TokenTransferError)?;
+
+    emit!(BattleResolved {
+        winner_id: winner.id,
+        loser_id: loser.id,
+        transfer_amount,
+    });
+
+    Ok(())
+}
+
+
 /// Context for resolving a battle outcome.
 #[derive(Accounts)]
 pub struct ResolveBattle<'info> {
@@ -73,3 +111,29 @@ pub struct ResolveBattle<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 }
+
+
+#[derive(Accounts)]
+pub struct ResolveBattleAgentWithAlliance<'info> {
+    // The winner of the battle.
+    #[account(
+        mut,
+        has_one = game, 
+
+    )]
+    pub winner: Account<'info, Agent>,
+
+    // The loser of the battle.
+    #[account(mut, has_one = game)]
+    pub loser: Account<'info, Agent>,
+
+    // The global game state; its authority field is used for access control.
+    pub game: Account<'info, Game>,
+
+    // The authority (owner) calling the function.
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+}
+
+

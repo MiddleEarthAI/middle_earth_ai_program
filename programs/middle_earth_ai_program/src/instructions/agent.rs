@@ -35,6 +35,7 @@ pub fn initialize_agent(
     agent_account.staked_balance = 0;
     agent_account.last_reward_claim = 0;
     agent_account.total_shares = 0;
+    
 
     Ok(())
 }
