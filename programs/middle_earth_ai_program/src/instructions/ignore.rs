@@ -1,8 +1,6 @@
 // ignore.rs
 use anchor_lang::prelude::*;
 use crate::state::{Agent, Game, IgnoreCooldown};
-use crate::error::GameError;
-use crate::constants::*;
 
 pub fn ignore_agent(ctx: Context<IgnoreAgent>, target_agent_id: u8) -> Result<()> {
     let agent = &mut ctx.accounts.agent;

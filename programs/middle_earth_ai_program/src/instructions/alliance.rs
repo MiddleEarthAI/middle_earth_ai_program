@@ -1,8 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::{Agent, Game};
 use crate::error::GameError;
-use crate::constants::*;
-use crate::agent::*; // Import validate_alliance
+ // Import validate_alliance
 use crate::state::Alliance;
 
 pub fn form_alliance(ctx: Context<FormAlliance>) -> Result<()> {

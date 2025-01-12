@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::{Agent, Game, TerrainType}; // Import TerrainType from state directly.
 use crate::error::GameError;
-use crate::constants::*;
 use crate::events::*; // if you want to emit events
 
 // The move_agent instruction now takes a terrain parameter.

@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::state::{Agent, Game};
 use crate::error::GameError;
 use crate::events::*; // Make sure BattleResolved is defined in your events module
-use crate::agent::*; // For validate_attack
+ // For validate_attack
 
 /// Resolve a battle outcome.
 /// This function subtracts `transfer_amount` from the loser and adds it to the winner.

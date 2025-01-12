@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use std::mem::size_of; // Optional if you want to compute sizes dynamically
+ // Optional if you want to compute sizes dynamically
 
 /// The global game state, storing high-level config and status.
 #[account]

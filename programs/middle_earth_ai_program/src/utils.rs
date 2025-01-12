@@ -1,4 +1,3 @@
-use anchor_lang::prelude::*;
 
 /// A placeholder function that returns a constant burn percentage.
 /// In a real game, you'd want to integrate an oracle or VRF for randomness.

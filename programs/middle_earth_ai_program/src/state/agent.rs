@@ -63,9 +63,9 @@ impl Agent {
 
     pub fn apply_terrain_move_cooldown(&mut self, terrain: TerrainType, now: i64) {
         let added_cooldown = match terrain {
-            TerrainType::Plain => ((1 * 3600) - 100) ,      
-            TerrainType::River => ((2 * 3600) - 300 ),      
-            TerrainType::Mountain => ((3 * 3600) - 600 ),   // 3 hours
+            TerrainType::Plain => (1 * 3600) - 100 ,      
+            TerrainType::River => (2 * 3600) - 300,      
+            TerrainType::Mountain => (3 * 3600) - 600,   // 3 hours
         };
         self.next_move_time = now + added_cooldown;
     }
