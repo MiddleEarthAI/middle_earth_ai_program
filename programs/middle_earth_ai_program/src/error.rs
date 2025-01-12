@@ -29,5 +29,7 @@ pub enum GameError {
     #[msg("Insufficient Funds Provided")]
     InsufficientFunds,
     #[msg("Unauthorized User")]
-    Unauthorized
+    Unauthorized, 
+    #[msg("Cooldown is still active")]
+    IgnoreCooldown, 
 }

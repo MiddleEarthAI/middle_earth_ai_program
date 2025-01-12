@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use crate::state::{Agent, Game};
 use crate::error::GameError;
 use crate::constants::*;
-
+use crate::state::TerrainType;
 /// Example: create an Agent. 
 /// 
 /// If `agent_id` is a single byte, seeds = [b"agent", game.key().as_ref(), &[agent_id]] 

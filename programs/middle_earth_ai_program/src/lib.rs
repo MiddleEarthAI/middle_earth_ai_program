@@ -12,6 +12,7 @@ declare_id!("FE7WJhRY55XjHcR22ryA3tHLq6fkDNgZBpbh25tto67Q");
 
 // Import the instructions modules so we can reference their functions.
 use instructions::*;
+use crate::state::TerrainType; // Correctly import TerrainType from state
 
 #[program]
 pub mod middle_earth_ai_program {
@@ -25,8 +26,14 @@ pub mod middle_earth_ai_program {
         agent::initialize_agent(ctx, agent_id, x, y)
     }
 
-    pub fn move_agent(ctx: Context<MoveAgent>, new_x: i32, new_y: i32) -> Result<()> {
-        movement::move_agent(ctx, new_x, new_y)
+    // Update the move_agent function to accept a terrain parameter.
+    pub fn move_agent(
+        ctx: Context<MoveAgent>,
+        new_x: i32,
+        new_y: i32,
+        terrain: TerrainType,
+    ) -> Result<()> {
+        movement::move_agent(ctx, new_x, new_y, terrain)
     }
 
     pub fn resolve_battle(ctx: Context<ResolveBattle>, transfer_amount: u64) -> Result<()> {

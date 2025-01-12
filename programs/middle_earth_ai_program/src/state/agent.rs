@@ -1,14 +1,8 @@
 use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::error::GameError;
-
+use crate::state::TerrainType;
 // Example enumeration for different terrain types
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq)]
-pub enum TerrainType {
-    Plain,
-    Mountain,
-    River,
-}
 
 // Enumeration for causes of death
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq)]
@@ -51,54 +45,43 @@ pub struct Agent {
     pub staked_balance: u64,           // Total tokens staked
     pub last_reward_claim: i64,        // Last reward claim timestamp
     pub total_shares: u64,            // Total shares representing staking pool ownership
-
+    pub last_attack: i64,
+    pub last_ignore: i64,
+    pub last_alliance: i64,
+    pub next_move_time: i64,
+    
     // PDA-related info
     pub vault_bump: u8,                // Bump seed for the PDA representing the agent's vault
 }
 // Helper methods on the Agent data structure
 impl Agent {
-    /// Checks if movement is allowed based on cooldown, map size, etc.
-    pub fn validate_movement(
-        &self,
-        new_x: i32,
-        new_y: i32,
-        map_diameter: u32,
-        timestamp: i64,
-    ) -> Result<()> {
-        // 1) Must be alive
+    pub fn validate_movement(&self, now: i64) -> Result<()> {
         require!(self.is_alive, GameError::AgentNotAlive);
-
-        // 2) Movement cooldown check
-        require!(
-            timestamp >= self.last_move + MOVEMENT_COOLDOWN,
-            GameError::MovementCooldown
-        );
-
-        // 3) Check map boundaries
-        let radius = (map_diameter / 2) as i32;
-        let distance_from_center = ((new_x.pow(2) + new_y.pow(2)) as f64).sqrt();
-        require!(distance_from_center <= radius as f64, GameError::OutOfBounds);
-
+        require!(now >= self.next_move_time, GameError::MovementCooldown);
         Ok(())
     }
 
-    /// Checks if the Agent can start a new action (e.g., battle)
-    pub fn validate_state(&self, timestamp: i64) -> Result<()> {
-        // Must be alive
-        require!(self.is_alive, GameError::AgentNotAlive);
+    pub fn apply_terrain_move_cooldown(&mut self, terrain: TerrainType, now: i64) {
+        let added_cooldown = match terrain {
+            TerrainType::Plain => ((1 * 3600) - 100) ,      
+            TerrainType::River => ((2 * 3600) - 300 ),      
+            TerrainType::Mountain => ((3 * 3600) - 600 ),   // 3 hours
+        };
+        self.next_move_time = now + added_cooldown;
+    }
 
-        // Ensure no battle is currently in progress
-        require!(
-            self.current_battle_start.is_none(),
-            GameError::BattleInProgress
-        );
+    pub fn validate_attack(&self, now: i64) -> Result<()> {
+        require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
+        Ok(())
+    }
 
-        // Verify battle cooldown
-        require!(
-            timestamp >= self.last_battle + BATTLE_COOLDOWN,
-            GameError::BattleCooldown
-        );
+    pub fn validate_ignore(&self, now: i64) -> Result<()> {
+        require!(now >= self.last_ignore + ACTION_COOLDOWN_SECS, GameError::IgnoreCooldown);
+        Ok(())
+    }
 
+    pub fn validate_alliance(&self, now: i64) -> Result<()> {
+        require!(now >= self.last_alliance + ACTION_COOLDOWN_SECS, GameError::AllianceCooldown);
         Ok(())
     }
 }

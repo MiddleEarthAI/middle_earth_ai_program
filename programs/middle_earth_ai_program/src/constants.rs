@@ -33,3 +33,4 @@ pub const MAX_REWARD_RATE: f64 = 0.2;
 pub const REWARD_CLAIM_COOLDOWN: i64 = 86400; // 24 hours
 
 pub const DAILY_REWARD_RATE: f64 = 0.1; 
+pub const ACTION_COOLDOWN_SECS: i64 = 4 * 3600;
