@@ -14,10 +14,10 @@ pub enum GameError {
     BattleCooldown,
     #[msg("Reentrancy attempt detected.")]
     ReentrancyGuard,
-    #[msg("Alliance in cooldown.")]
+    #[msg("Alliance is on cooldown.")]
     AllianceCooldown,
     #[msg("Not enough tokens for battle.")]
-    NotEnoughTokens,
+    NotEnoughTokens,    
     #[msg("Stake amount exceeds maximum allowed.")]
     MaxStakeExceeded,
     #[msg("Cannot claim rewards yet.")]
@@ -28,17 +28,20 @@ pub enum GameError {
     TokenTransferError,
     #[msg("Insufficient Funds Provided.")]
     InsufficientFunds,
-    #[msg("Unauthorized User.")]
-    Unauthorized, 
+    #[msg("Unauthorized action.")]
+    Unauthorized,
     #[msg("Cooldown is still active.")]
-    IgnoreCooldown, 
-
+    IgnoreCooldown,
     #[msg("Invalid alliance partner.")]
     InvalidAlliancePartner,
     #[msg("An active alliance already exists.")]
     AllianceAlreadyExists,
     #[msg("No active alliance to break.")]
     NoAllianceToBreak,
-    #[msg("Alliance record not found.")]
-    AllianceNotFound,
+    #[msg("Maximum number of agents reached.")]
+    MaxAgentLimitReached,
+    #[msg("Agent already exists.")]
+    AgentAlreadyExists,
+    #[msg("Agent name is too long.")]
+    NameTooLong,
 }

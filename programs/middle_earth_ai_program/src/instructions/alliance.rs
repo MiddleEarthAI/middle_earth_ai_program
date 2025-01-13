@@ -78,10 +78,7 @@ pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
           (a.agent1 == target.key() && a.agent2 == initiator.key()))
     }) {
          alliance.is_active = false;
-    } else {
-         return err!(GameError::AllianceNotFound);
-    }
-    
+    } 
     Ok(())
 }
 

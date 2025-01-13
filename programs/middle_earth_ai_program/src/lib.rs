@@ -8,12 +8,14 @@ pub mod state;
 pub mod instructions;
 pub mod utils;
 
+// Re-export TerrainType from the state module so it appears in the IDL.
+pub use state::terrain::TerrainType;
+
 declare_id!("FE7WJhRY55XjHcR22ryA3tHLq6fkDNgZBpbh25tto67Q");
 
 // Import the instructions modules so we can reference their functions.
 use instructions::*;
-use crate::state::TerrainType; // Correctly import TerrainType from state
-
+ 
 #[program]
 pub mod middle_earth_ai_program {
     use super::*;
@@ -62,6 +64,9 @@ pub mod middle_earth_ai_program {
 
     pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         token::claim_staking_rewards(ctx)
+    }
+    pub fn add_agent(ctx: Context<AddAgent>, agent_key: Pubkey, name: String) -> Result<()> {
+        agent::add_agent(ctx, agent_key, name)
     }
 }
 
