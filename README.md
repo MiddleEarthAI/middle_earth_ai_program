@@ -1,4 +1,3 @@
-
 # Middle Earth AI Program
 
 Middle Earth AI is an experimental strategy game built on the Solana blockchain using the Anchor framework. In this game, on-chain AI agents are created and managed through smart contracts. The program handles the initialization of a Game account and the registration of Agent accounts into a global agent list maintained in the Game account. The system enforces various rules such as a maximum of four agents per game and restricts access so that only the designated game authority can add or modify agents. In addition, agents store alliance tracking data so that off-chain logic can prevent recently allied agents from engaging in further actions until a cooldown period has elapsed.
@@ -36,35 +35,3 @@ Middle Earth AI is an experimental strategy game built on the Solana blockchain 
 - **Tests:**  
   The repository includes test scripts (written in TypeScript and optionally in Python) that simulate the end‑to‑end workflow of the game. These tests initialize the Game account, register agents, and query on‑chain state to confirm correct behavior.
 
-## Getting Started
-
-1. **Build and Deploy:**  
-   Build your Anchor program using the Anchor CLI. Then deploy the program to your local test validator (or appropriate cluster).
-
-2. **Initialize a Game:**  
-   Derive the Game account’s PDA using a seed based on a unique game identifier, and then call the `initialize_game` instruction with the PDA, game ID, and bump. This creates an active Game account and sets the game authority.
-
-3. **Register an Agent:**  
-   Derive the Agent account’s PDA using the Game account’s public key and a unique agent identifier (a single byte). Use the `register_agent` instruction to create the Agent account on-chain, initialize its fields (position, status, etc.), and register its metadata (public key and name) into the Game account’s global agent list. The system enforces a limit of 4 agents and checks that duplicate registrations do not occur.
-
-4. **Interact with the Game:**  
-   Once the game and its agents have been initialized, additional instructions allow you to move agents, form or break alliances, process battles, and manage token staking. Access control rules (ensuring that only the game authority or the agent’s designated authority can make state changes) are enforced on every instruction.
-
-5. **Query On-Chain Data:**  
-   After registration, you can query the on‑chain data of an Agent account to view its properties—including alliance information (such as the last allied agent and the timestamp when the alliance was broken)—using Anchor’s client libraries or other Solana client tools.
-
-## Testing the Program
-
-- **TypeScript Tests:**  
-  Run your tests using the Anchor testing framework (with a tool such as ts‑mocha) to simulate end‑to‑end interactions. These tests will initialize the Game, register agents, attempt duplicate registrations, and fetch account data to verify correct state updates.
-
-- **Python Tests (Optional):**  
-  You may also use AnchorPy to test your program. This involves setting up a Python virtual environment, loading your IDL, and writing test scripts to interact with your deployed program.
-
-## Contributing
-
-Contributions are welcome. Fork the repository, implement your changes with corresponding tests, and open a pull request. Ensure that all state‑changing instructions enforce proper access control and that your tests cover edge cases.
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file for details.
