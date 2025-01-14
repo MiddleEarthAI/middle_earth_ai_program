@@ -59,18 +59,25 @@ pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
     let initiator = &mut ctx.accounts.initiator;
     let target = &mut ctx.accounts.target_agent;
     let game = &mut ctx.accounts.game;
-    
+    let now = Clock::get()?.unix_timestamp;
+
     // Check that the initiator is allied with the target.
     if initiator.alliance_with.is_none() || initiator.alliance_with.unwrap() != target.key() {
         return err!(GameError::NoAllianceToBreak);
     }
-    
+
+    // Record the last alliance details before clearing.
+    initiator.last_alliance_agent = Some(target.key());
+    initiator.last_alliance_broken = now;
+    target.last_alliance_agent = Some(initiator.key());
+    target.last_alliance_broken = now;
+
     // Clear the alliance fields for both agents.
     initiator.alliance_with = None;
     initiator.alliance_timestamp = 0;
     target.alliance_with = None;
     target.alliance_timestamp = 0;
-    
+
     // Find the alliance in the global list and mark it as inactive.
     if let Some(alliance) = game.alliances.iter_mut().find(|a| {
          a.is_active &&
@@ -78,9 +85,11 @@ pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
           (a.agent1 == target.key() && a.agent2 == initiator.key()))
     }) {
          alliance.is_active = false;
-    } 
+    }
+
     Ok(())
 }
+
 
 #[derive(Accounts)]
 pub struct FormAlliance<'info> {

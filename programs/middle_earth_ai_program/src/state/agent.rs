@@ -49,7 +49,8 @@ pub struct Agent {
     pub last_ignore: i64,
     pub last_alliance: i64,
     pub next_move_time: i64,
-    
+    pub last_alliance_agent: Option<Pubkey>, // Pubkey of the last allied agent
+    pub last_alliance_broken: i64,  
     // PDA-related info
     pub vault_bump: u8,                // Bump seed for the PDA representing the agent's vault
 }

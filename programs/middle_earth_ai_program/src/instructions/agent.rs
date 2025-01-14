@@ -55,6 +55,10 @@ pub fn register_agent(
     agent_account.next_move_time = 0;
     agent_account.vault_bump = 0;
 
+    // Initialize the new fields for alliances.
+    agent_account.last_alliance_agent = None; // No last alliance agent at registration
+    agent_account.last_alliance_broken = 0;   // No alliance broken at registration
+
     // Register the agent in the global list with the provided name.
     game_account.agents.push(crate::state::agent_info::AgentInfo {
         key: agent_key,
