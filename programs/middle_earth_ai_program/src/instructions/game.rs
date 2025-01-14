@@ -13,7 +13,6 @@ pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> 
 
     game_account.game_id = game_id as u64; 
     game_account.authority = ctx.accounts.authority.key();
-    game_account.battle_range = BATTLE_RANGE;
     game_account.is_active = true;
     game_account.last_update = Clock::get()?.unix_timestamp;
     game_account.reentrancy_guard = false;

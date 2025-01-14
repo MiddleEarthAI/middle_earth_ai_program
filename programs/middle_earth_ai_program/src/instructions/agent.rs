@@ -4,6 +4,8 @@ use crate::error::GameError;
 
 /// Combines the functionalities of `initialize_agent` and `add_agent`. 
 /// This function initializes an agent account and registers it in the global agent list.
+/// 
+/// **Access Control:** Only the game authority (stored in the Game account) may call this function.
 pub fn register_agent(
     ctx: Context<RegisterAgent>,
     agent_id: u8,
@@ -55,9 +57,9 @@ pub fn register_agent(
     agent_account.next_move_time = 0;
     agent_account.vault_bump = 0;
 
-    // Initialize the new fields for alliances.
+    // Initialize the new fields for alliance tracking.
     agent_account.last_alliance_agent = None; // No last alliance agent at registration
-    agent_account.last_alliance_broken = 0;   // No alliance broken at registration
+    agent_account.last_alliance_broken = 0;     // No alliance break timestamp at registration
 
     // Register the agent in the global list with the provided name.
     game_account.agents.push(crate::state::agent_info::AgentInfo {
@@ -68,9 +70,27 @@ pub fn register_agent(
     Ok(())
 }
 
+/// Marks an agent as dead by setting its `is_alive` field to false.
+/// 
+/// **Access Control:** Only the agent's authority (or game authority) may call this function.
+pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
+    let agent_account = &mut ctx.accounts.agent;
+
+    // Ensure that only the designated authority can kill the agent.
+    // Here we check that the signer is the authority stored on the agent.
+    require!(ctx.accounts.authority.key() == agent_account.authority, GameError::Unauthorized);
+
+    // Mark the agent as dead.
+    agent_account.is_alive = false;
+
+    Ok(())
+}
+
 #[derive(Accounts)]
 #[instruction(agent_id: u8, x: i32, y: i32, name: String)]
 pub struct RegisterAgent<'info> {
+    // The Game account must be mutable and have an authority.
+    // Access control: It also checks that the game is active.
     #[account(
         mut,
         has_one = authority,
@@ -78,7 +98,7 @@ pub struct RegisterAgent<'info> {
     )]
     pub game: Account<'info, Game>,
 
-    /// Create the Agent account using PDA seeds.
+    /// The Agent account is initialized using PDA seeds.
     #[account(
         init,
         payer = authority,
@@ -96,4 +116,13 @@ pub struct RegisterAgent<'info> {
     pub authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+/// Accounts context for killing an agent.
+#[derive(Accounts)]
+pub struct KillAgent<'info> {
+    #[account(mut, has_one = authority)]
+    pub agent: Account<'info, Agent>,
+    /// The authority that can perform the kill. In many cases this should match agent.authority.
+    pub authority: Signer<'info>,
 }
