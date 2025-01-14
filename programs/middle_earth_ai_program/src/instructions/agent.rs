@@ -2,20 +2,37 @@ use anchor_lang::prelude::*;
 use crate::state::{Agent, Game};
 use crate::error::GameError;
 
-/// Create an individual Agent account. This function should be called only once per agent.
-/// The account is created using PDA seeds: [b"agent", game.key().as_ref(), &[agent_id]].
-pub fn initialize_agent(
-    ctx: Context<InitializeAgent>,
-    agent_id: u8, // single byte
+/// Combines the functionalities of `initialize_agent` and `add_agent`. 
+/// This function initializes an agent account and registers it in the global agent list.
+pub fn register_agent(
+    ctx: Context<RegisterAgent>,
+    agent_id: u8,
     x: i32,
-    y: i32
+    y: i32,
+    name: String,
 ) -> Result<()> {
+    let game_account = &mut ctx.accounts.game;
     let agent_account = &mut ctx.accounts.agent;
-    let game_account = &ctx.accounts.game;
+
+    // Cache the agent's public key before modifying it.
+    let agent_key = agent_account.key();
 
     // Ensure the game is active.
     require!(game_account.is_active, GameError::ReentrancyGuard);
 
+    // Ensure the name is within the allowed length.
+    require!(name.len() <= 32, GameError::NameTooLong);
+
+    // Ensure the global agent list does not exceed the limit.
+    require!(game_account.agents.len() < 4, GameError::MaxAgentLimitReached);
+
+    // Ensure the agent is not already registered in the game's global list.
+    require!(
+        !game_account.agents.iter().any(|a| a.key == agent_key),
+        GameError::AgentAlreadyExists
+    );
+
+    // Initialize the agent account.
     agent_account.game = game_account.key();
     agent_account.authority = ctx.accounts.authority.key();
     agent_account.id = agent_id;
@@ -38,12 +55,19 @@ pub fn initialize_agent(
     agent_account.next_move_time = 0;
     agent_account.vault_bump = 0;
 
+    // Register the agent in the global list with the provided name.
+    game_account.agents.push(crate::state::agent_info::AgentInfo {
+        key: agent_key,
+        name,
+    });
+
     Ok(())
 }
 
+
 #[derive(Accounts)]
-#[instruction(agent_id: u8, x: i32, y: i32)]
-pub struct InitializeAgent<'info> {
+#[instruction(agent_id: u8, x: i32, y: i32, name: String)]
+pub struct RegisterAgent<'info> {
     #[account(
         mut,
         has_one = authority,
@@ -68,44 +92,5 @@ pub struct InitializeAgent<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    pub system_program: Program<'info, System>,
-}
-
-/// Add an agent’s information (public key and name) to the Game’s global agent list.
-/// This instruction does not create a new Agent account—it merely records the agent’s info
-/// in the Game account. Only the game authority is allowed to call this.
-pub fn add_agent(ctx: Context<AddAgent>, agent_key: Pubkey, name: String) -> Result<()> {
-    let game = &mut ctx.accounts.game;
-
-    // Only the game authority may add agents.
-    require!(ctx.accounts.authority.key() == game.authority, GameError::Unauthorized);
-
-    // Check that the number of agents is less than 4.
-    if game.agents.len() >= 4 {
-        return Err(GameError::MaxAgentLimitReached.into());
-    }
-
-    // Check that the agent is not already present.
-    if game.agents.iter().any(|a| a.key == agent_key) {
-        return Err(GameError::AgentAlreadyExists.into());
-    }
-
-    // Check name length (for example, maximum 32 characters).
-    if name.len() > 32 {
-        return Err(GameError::NameTooLong.into());
-    }
-
-    // Add the new AgentInfo to the global list.
-    game.agents.push(crate::state::agent_info::AgentInfo { key: agent_key, name });
-
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct AddAgent<'info> {
-    #[account(mut, has_one = authority)]
-    pub game: Account<'info, Game>,
-    #[account(mut)]
-    pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }

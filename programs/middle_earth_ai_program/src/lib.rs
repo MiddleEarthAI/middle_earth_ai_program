@@ -24,8 +24,17 @@ pub mod middle_earth_ai_program {
         game::initialize_game(ctx, game_id, bump)
     }
 
-    pub fn initialize_agent(ctx: Context<InitializeAgent>, agent_id: u8, x: i32, y: i32) -> Result<()> {
-        agent::initialize_agent(ctx, agent_id, x, y)
+    /// Combined function for agent registration:
+    /// This instruction both initializes an Agent account and adds its metadata 
+    /// (including the agent’s public key and name) to the Game’s global agent list.
+    pub fn register_agent(
+        ctx: Context<RegisterAgent>,
+        agent_id: u8, // single byte identifier
+        x: i32,
+        y: i32,
+        name: String,
+    ) -> Result<()> {
+        agent::register_agent(ctx, agent_id, x, y, name)
     }
 
     // Update the move_agent function to accept a terrain parameter.
@@ -64,9 +73,6 @@ pub mod middle_earth_ai_program {
 
     pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         token::claim_staking_rewards(ctx)
-    }
-    pub fn add_agent(ctx: Context<AddAgent>, agent_key: Pubkey, name: String) -> Result<()> {
-        agent::add_agent(ctx, agent_key, name)
     }
 }
 
