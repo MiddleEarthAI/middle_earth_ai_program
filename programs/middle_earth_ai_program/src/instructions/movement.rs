@@ -3,7 +3,6 @@ use crate::state::{Agent, Game, TerrainType}; // Import TerrainType from state d
 use crate::error::GameError;
 use crate::events::*; // if you want to emit events
 
-// The move_agent instruction now takes a terrain parameter.
 pub fn move_agent(
     ctx: Context<MoveAgent>,
     new_x: i32,
@@ -14,7 +13,6 @@ pub fn move_agent(
     let _game = &ctx.accounts.game; 
     let now = Clock::get()?.unix_timestamp;
 
-    // Validate that movement is allowed (i.e. that the cooldown has expired).
     agent.validate_movement(now)?;
 
     let old_x = agent.x;

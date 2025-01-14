@@ -68,7 +68,6 @@ pub fn register_agent(
     Ok(())
 }
 
-
 #[derive(Accounts)]
 #[instruction(agent_id: u8, x: i32, y: i32, name: String)]
 pub struct RegisterAgent<'info> {

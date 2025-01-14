@@ -110,7 +110,6 @@ pub fn resolve_battle_simple(
     let loser = &mut ctx.accounts.loser;
     let now = Clock::get()?.unix_timestamp;
 
-    // Validate that the winner’s cooldown has expired.
     winner.validate_attack(now)?;
     // Update cooldowns.
     winner.last_attack = now;

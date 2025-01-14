@@ -6,7 +6,6 @@ pub fn ignore_agent(ctx: Context<IgnoreAgent>, target_agent_id: u8) -> Result<()
     let agent = &mut ctx.accounts.agent;
     let now = Clock::get()?.unix_timestamp;
 
-    // Validate that the ignore action cooldown has passed.
     agent.validate_ignore(now)?;
 
     // Record the ignore action.
