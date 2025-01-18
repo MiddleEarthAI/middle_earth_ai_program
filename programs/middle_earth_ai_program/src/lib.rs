@@ -15,7 +15,7 @@ declare_id!("FE7WJhRY55XjHcR22ryA3tHLq6fkDNgZBpbh25tto67Q");
 
 // Import the instructions modules so we can reference their functions.
 use instructions::*;
- 
+
 #[program]
 pub mod middle_earth_ai_program {
     use super::*;
@@ -24,9 +24,8 @@ pub mod middle_earth_ai_program {
         game::initialize_game(ctx, game_id, bump)
     }
 
-    /// Combined function for agent registration:
-    /// This instruction both initializes an Agent account and adds its metadata 
-    /// (including the agent’s public key and name) to the Game’s global agent list.
+    /// Combined function for agent registration.
+    /// This instruction both initializes an Agent account and registers it in the game’s agent list.
     pub fn register_agent(
         ctx: Context<RegisterAgent>,
         agent_id: u8, // single byte identifier
@@ -36,7 +35,13 @@ pub mod middle_earth_ai_program {
     ) -> Result<()> {
         agent::register_agent(ctx, agent_id, x, y, name)
     }
-
+    
+    /// Marks an agent as dead.
+    /// **Access Control:** Only the agent's authority (or game authority) may call this function.
+    pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
+        agent::kill_agent(ctx)
+    }
+    
     // Update the move_agent function to accept a terrain parameter.
     pub fn move_agent(
         ctx: Context<MoveAgent>,
