@@ -26,7 +26,6 @@ pub fn register_agent(
     require!(name.len() <= 32, GameError::NameTooLong);
 
     // Ensure the global agent list does not exceed the limit.
-    require!(game_account.agents.len() < 4, GameError::MaxAgentLimitReached);
 
     // Ensure the agent is not already registered in the game's global list.
     require!(

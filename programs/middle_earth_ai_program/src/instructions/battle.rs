@@ -10,7 +10,7 @@ use crate::events::*; // Ensure BattleResolved event is defined
 /// Access control: Only the game authority (stored in the Game account) may resolve a battle.
 pub fn resolve_battle(
     ctx: Context<ResolveBattle>,
-    transfer_amount: u64, // This value is used only for event logging.
+    transfer_amount: u64, 
 ) -> Result<()> {
     let authority = &ctx.accounts.authority;
     let game = &ctx.accounts.game;

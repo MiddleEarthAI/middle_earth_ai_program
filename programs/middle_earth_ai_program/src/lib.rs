@@ -52,8 +52,14 @@ pub mod middle_earth_ai_program {
         movement::move_agent(ctx, new_x, new_y, terrain)
     }
 
+    /// Resolves a battle with alliances by updating cooldowns for all allied agents.
     pub fn resolve_battle(ctx: Context<ResolveBattle>, transfer_amount: u64) -> Result<()> {
         battle::resolve_battle(ctx, transfer_amount)
+    }
+
+    /// Resolves a simple battle (without alliances) by updating the winner's and loser's cooldowns.
+    pub fn resolve_battle_simple(ctx: Context<ResolveBattleSimple>, transfer_amount: u64) -> Result<()> {
+        battle::resolve_battle_simple(ctx, transfer_amount)
     }
     
     pub fn form_alliance(ctx: Context<FormAlliance>) -> Result<()> {
