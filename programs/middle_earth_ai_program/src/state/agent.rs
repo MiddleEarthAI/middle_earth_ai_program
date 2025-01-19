@@ -72,17 +72,17 @@ impl Agent {
     }
 
     pub fn validate_attack(&self, now: i64) -> Result<()> {
-        require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
+        // require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
         Ok(())
     }
 
     pub fn validate_ignore(&self, now: i64) -> Result<()> {
-        require!(now >= self.last_ignore + ACTION_COOLDOWN_SECS, GameError::IgnoreCooldown);
+        // require!(now >= self.last_ignore + ACTION_COOLDOWN_SECS, GameError::IgnoreCooldown);
         Ok(())
     }
 
     pub fn validate_alliance(&self, now: i64) -> Result<()> {
-        require!(now >= self.last_alliance + ACTION_COOLDOWN_SECS, GameError::AllianceCooldown);
+        // require!(now >= self.last_alliance + ACTION_COOLDOWN_SECS, GameError::AllianceCooldown);
         Ok(())
     }
 }

@@ -13,7 +13,6 @@ pub fn move_agent(
     let _game = &ctx.accounts.game; 
     let now = Clock::get()?.unix_timestamp;
 
-    agent.validate_movement(now)?;
 
     let old_x = agent.x;
     let old_y = agent.y;
