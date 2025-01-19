@@ -221,7 +221,6 @@ describe("Battle Contract Tests", () => {
   });
 
   before("Create token mint and associated token accounts for agents", async () => {
-    // Create a new token mint.
     tokenMint = await createMint(
       connection,
       payer,
@@ -231,7 +230,6 @@ describe("Battle Contract Tests", () => {
     );
     console.log("Battle Tests - Created token mint:", tokenMint.toBase58());
 
-    // List all agent IDs for battle tests.
     const allAgentIds = [
       ...Object.values(allianceBattleAgents),
       ...Object.values(simpleBattleAgents),
@@ -239,7 +237,7 @@ describe("Battle Contract Tests", () => {
     const mintAmount = 1_000_000_000;
 
     for (const agentId of allAgentIds) {
-      // Create or get the associated token account (ATA) for this agent
+      // For each agent, create an ATA with the provider.wallet.publicKey as owner
       const ata = await getOrCreateAssociatedTokenAccount(
         connection,
         payer,
@@ -251,7 +249,6 @@ describe("Battle Contract Tests", () => {
       );
       tokenAccounts[agentId] = ata.address;
       console.log(`Battle Tests - Token account for agent ${agentId}: ${ata.address.toBase58()}`);
-
       await mintTo(
         connection,
         payer,
@@ -312,11 +309,23 @@ describe("Battle Contract Tests", () => {
   });
 
   describe("resolve_battle (with alliances)", () => {
-    it("Resolves an alliance battle, updating cooldowns and transferring tokens proportionally", async () => {
+    it("Resolves an alliance battle, updating cooldowns and transferring tokens proportionally, and verifies token balances", async () => {
       const winnerPda = await deriveAgentPda(allianceBattleAgents.winner);
       const winnerPartnerPda = await deriveAgentPda(allianceBattleAgents.winnerPartner);
       const loserPda = await deriveAgentPda(allianceBattleAgents.loser);
       const loserPartnerPda = await deriveAgentPda(allianceBattleAgents.loserPartner);
+
+      // Fetch initial token balances
+      const initLoser = await getAccount(connection, tokenAccounts[allianceBattleAgents.loser]);
+      const initLoserPartner = await getAccount(connection, tokenAccounts[allianceBattleAgents.loserPartner]);
+      const initWinner = await getAccount(connection, tokenAccounts[allianceBattleAgents.winner]);
+      const initWinnerPartner = await getAccount(connection, tokenAccounts[allianceBattleAgents.winnerPartner]);
+
+      console.log("Initial token balances (with alliances):");
+      console.log("Loser:", Number(initLoser.amount));
+      console.log("Loser Partner:", Number(initLoserPartner.amount));
+      console.log("Winner:", Number(initWinner.amount));
+      console.log("Winner Partner:", Number(initWinnerPartner.amount));
 
       const txSig = await program.methods
         .resolveBattle(20) // 20% loss
@@ -337,13 +346,37 @@ describe("Battle Contract Tests", () => {
         })
         .rpc();
       console.log("Battle Tests - resolve_battle tx signature:", txSig);
+
+      // Fetch final balances
+      const finalLoser = await getAccount(connection, tokenAccounts[allianceBattleAgents.loser]);
+      const finalLoserPartner = await getAccount(connection, tokenAccounts[allianceBattleAgents.loserPartner]);
+      const finalWinner = await getAccount(connection, tokenAccounts[allianceBattleAgents.winner]);
+      const finalWinnerPartner = await getAccount(connection, tokenAccounts[allianceBattleAgents.winnerPartner]);
+
+      console.log("Final token balances (with alliances):");
+      console.log("Loser:", Number(finalLoser.amount));
+      console.log("Loser Partner:", Number(finalLoserPartner.amount));
+      console.log("Winner:", Number(finalWinner.amount));
+      console.log("Winner Partner:", Number(finalWinnerPartner.amount));
+
+      // For simplicity, assert that the loser's token balance decreased and winner's increased.
+      expect(Number(finalLoser.amount)).to.be.lessThan(Number(initLoser.amount));
+      expect(Number(finalWinner.amount)).to.be.greaterThan(Number(initWinner.amount));
     });
   });
 
   describe("resolve_battle_simple (without alliances)", () => {
-    it("Resolves a simple battle, updating cooldowns and transferring tokens", async () => {
+    it("Resolves a simple battle, updating cooldowns and transferring tokens, and verifies token balances", async () => {
       const winnerPda = await deriveAgentPda(simpleBattleAgents.winner);
       const loserPda = await deriveAgentPda(simpleBattleAgents.loser);
+
+      // Fetch initial balances
+      const initWinner = await getAccount(connection, tokenAccounts[simpleBattleAgents.winner]);
+      const initLoser = await getAccount(connection, tokenAccounts[simpleBattleAgents.loser]);
+
+      console.log("Initial token balances (simple battle):");
+      console.log("Winner:", Number(initWinner.amount));
+      console.log("Loser:", Number(initLoser.amount));
 
       const txSig = await program.methods
         .resolveBattleSimple(20) // 20% loss
@@ -359,6 +392,17 @@ describe("Battle Contract Tests", () => {
         })
         .rpc();
       console.log("Battle Tests - resolve_battle_simple tx signature:", txSig);
+
+      // Fetch final balances.
+      const finalWinner = await getAccount(connection, tokenAccounts[simpleBattleAgents.winner]);
+      const finalLoser = await getAccount(connection, tokenAccounts[simpleBattleAgents.loser]);
+
+      console.log("Final token balances (simple battle):");
+      console.log("Winner:", Number(finalWinner.amount));
+      console.log("Loser:", Number(finalLoser.amount));
+
+      expect(Number(finalLoser.amount)).to.be.lessThan(Number(initLoser.amount));
+      expect(Number(finalWinner.amount)).to.be.greaterThan(Number(initWinner.amount));
     });
   });
 
