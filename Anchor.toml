@@ -10,8 +10,7 @@ skip-lint = false
 middle_earth_ai_program = "FE7WJhRY55XjHcR22ryA3tHLq6fkDNgZBpbh25tto67Q"
 
 [registry]
-# The Anchor registry URL (optional for localnet)
-url = "https://anchor.projectserum.com"
+url = "https://anchor.software/registry"
 
 [provider]
 # Configuration for the local Solana cluster and wallet
