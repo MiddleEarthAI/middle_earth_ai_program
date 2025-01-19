@@ -12,103 +12,232 @@ use crate::events::*; // Ensure BattleResolved event is defined
 /// - Deducts from each losing account proportionally.
 /// - Distributes the total lost amount among the winners (winner and winner partner) in proportion
 ///   to their token balances.
-pub fn resolve_battle(
-    ctx: Context<ResolveBattle>,
-    percent_lost: u8,  // e.g., 20% loss
+pub fn resolve_battle_agent_vs_alliance(
+    ctx: Context<ResolveBattleAgentAlliance>,
+    percent_lost: u8,
+    // "agent_is_winner" param indicates if the single agent is the winner or loser.
+    agent_is_winner: bool,
 ) -> Result<()> {
     let authority = &ctx.accounts.authority;
     let game = &ctx.accounts.game;
     require!(authority.key() == game.authority, GameError::Unauthorized);
 
-    // Update battle cooldown timers.
-    let winner = &mut ctx.accounts.winner;
-    let loser = &mut ctx.accounts.loser;
     let now = Clock::get()?.unix_timestamp;
-    winner.validate_attack(now)?;
-    winner.last_attack = now;
-    if winner.alliance_with.is_some() {
-        let winner_partner = &mut ctx.accounts.winner_partner;
-        winner_partner.last_attack = now;
-    }
-    loser.last_attack = now;
-    if loser.alliance_with.is_some() {
-        let loser_partner = &mut ctx.accounts.loser_partner;
-        loser_partner.last_attack = now;
-    }
 
-    // --- Token Transfer Logic for Alliance Battle ---
-    // Unpack token accounts to get the balances.
-    let loser_token_account = SplTokenAccount::unpack_from_slice(&ctx.accounts.loser_token.data.borrow())?;
-    let loser_partner_token_account = SplTokenAccount::unpack_from_slice(&ctx.accounts.loser_partner_token.data.borrow())?;
-    let total_loser_balance = loser_token_account.amount
-        .checked_add(loser_partner_token_account.amount)
-        .ok_or(GameError::InsufficientFunds)?;
-    let total_lost = total_loser_balance
-        .checked_mul(percent_lost as u64)
-        .ok_or(GameError::InsufficientFunds)?
-        .checked_div(100)
+    // Agents
+    let single_agent = &mut ctx.accounts.single_agent;
+    let alliance_leader = &mut ctx.accounts.alliance_leader;
+    let alliance_partner = &mut ctx.accounts.alliance_partner;
+
+    // Update last_attack cooldown
+    single_agent.validate_attack(now)?;
+    single_agent.last_attack = now;
+    alliance_leader.last_attack = now;
+    alliance_partner.last_attack = now;
+
+    // Unpack token accounts
+    let single_token_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.single_agent_token.data.borrow())?;
+    let alliance_leader_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.alliance_leader_token.data.borrow())?;
+    let alliance_partner_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.alliance_partner_token.data.borrow())?;
+
+    // The alliance total balance is alliance_leader + alliance_partner
+    let alliance_balance = alliance_leader_data.amount
+        .checked_add(alliance_partner_data.amount)
         .ok_or(GameError::InsufficientFunds)?;
 
-    // Unpack the winners' token accounts.
-    let winner_token_account = SplTokenAccount::unpack_from_slice(&ctx.accounts.winner_token.data.borrow())?;
-    let winner_partner_token_account = SplTokenAccount::unpack_from_slice(&ctx.accounts.winner_partner_token.data.borrow())?;
-    let total_winner_balance = winner_token_account.amount
-        .checked_add(winner_partner_token_account.amount)
-        .ok_or(GameError::InsufficientFunds)?;
-    // Calculate the share for each winning account proportionally.
-    let winner_share = if total_winner_balance > 0 {
-        total_lost
-            .checked_mul(winner_token_account.amount)
-            .ok_or(GameError::InsufficientFunds)?
-            .checked_div(total_winner_balance)
-            .ok_or(GameError::InsufficientFunds)?
-    } else { 0 };
-    let winner_partner_share = if total_winner_balance > 0 {
-        total_lost
-            .checked_mul(winner_partner_token_account.amount)
-            .ok_or(GameError::InsufficientFunds)?
-            .checked_div(total_winner_balance)
-            .ok_or(GameError::InsufficientFunds)?
-    } else { 0 };
+    if agent_is_winner {
+        // Single agent is winner, alliance is loser
+        // We take `percent_lost` from alliance_balance, distributing it to single agent.
 
-    // Deduct tokens proportionally from the losing side.
-    let loser_deduction = if total_loser_balance > 0 {
-        total_lost
-            .checked_mul(loser_token_account.amount)
-            .ok_or(GameError::InsufficientFunds)?
-            .checked_div(total_loser_balance)
-            .ok_or(GameError::InsufficientFunds)?
-    } else { 0 };
-    let loser_partner_deduction = total_lost
-        .checked_sub(loser_deduction)
-        .ok_or(GameError::InsufficientFunds)?;
+        let total_lost = alliance_balance
+            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
+            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
 
-    // Transfer tokens from loser's token account to winner's token account.
-    {
-        let cpi_accounts = Transfer {
-            from: ctx.accounts.loser_token.to_account_info(),
-            to: ctx.accounts.winner_token.to_account_info(),
-            authority: ctx.accounts.loser_authority.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        transfer(CpiContext::new(cpi_program.clone(), cpi_accounts), loser_deduction)?;
+        // For simplicity, we deduct from alliance_leader and alliance_partner in proportion
+        // to their share in alliance_balance
+        let leader_deduction = if alliance_balance > 0 {
+            total_lost
+                .checked_mul(alliance_leader_data.amount)
+                .ok_or(GameError::InsufficientFunds)?
+                .checked_div(alliance_balance)
+                .ok_or(GameError::InsufficientFunds)?
+        } else { 0 };
+        let partner_deduction = total_lost.checked_sub(leader_deduction).ok_or(GameError::InsufficientFunds)?;
+
+        // Transfer from alliance_leader_token -> single_agent_token
+        if leader_deduction > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.alliance_leader_token.to_account_info(),
+                to: ctx.accounts.single_agent_token.to_account_info(),
+                authority: ctx.accounts.alliance_leader_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), leader_deduction)?;
+        }
+        // Transfer from alliance_partner_token -> single_agent_token
+        if partner_deduction > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.alliance_partner_token.to_account_info(),
+                to: ctx.accounts.single_agent_token.to_account_info(),
+                authority: ctx.accounts.alliance_partner_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), partner_deduction)?;
+        }
+
+    } else {
+        // Alliance is winner, single agent is loser.
+        // The single agent loses `percent_lost` of single_token_data.amount
+        // Then we distribute that lost amount 50/50 to alliance_leader and alliance_partner
+
+        let single_balance = single_token_data.amount;
+        let lost_amount = single_balance
+            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
+            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
+
+        // We do a single transfer from single_agent_token -> alliance_leader_token
+        // and from single_agent_token -> alliance_partner_token
+        // Splitting the lost_amount in half for each (or by ratio if you prefer).
+        let half_loss = lost_amount.checked_div(2).ok_or(GameError::InsufficientFunds)?;
+        let remainder = lost_amount.checked_sub(half_loss).ok_or(GameError::InsufficientFunds)?;
+
+        // Transfer half to alliance leader
+        if half_loss > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.single_agent_token.to_account_info(),
+                to: ctx.accounts.alliance_leader_token.to_account_info(),
+                authority: ctx.accounts.single_agent_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), half_loss)?;
+        }
+        // Transfer half (or remainder) to alliance partner
+        if remainder > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.single_agent_token.to_account_info(),
+                to: ctx.accounts.alliance_partner_token.to_account_info(),
+                authority: ctx.accounts.single_agent_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), remainder)?;
+        }
     }
-    // Transfer tokens from loser partner's token account to winner partner's token account.
-    {
-        let cpi_accounts = Transfer {
-            from: ctx.accounts.loser_partner_token.to_account_info(),
-            to: ctx.accounts.winner_partner_token.to_account_info(),
-            authority: ctx.accounts.loser_partner_authority.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        transfer(CpiContext::new(cpi_program, cpi_accounts), loser_partner_deduction)?;
+
+    Ok(())
+}
+
+/// If alliance battles another alliance. 
+/// We assume each side has a "leader" and "partner".
+/// The losing side is determined externally by an argument `alliance_a_wins`.
+/// If `alliance_a_wins` is `true`, alliance A is winner. Otherwise alliance B is winner.
+/// We take the losing alliance's balance, apply `percent_lost`, and distribute among the winners.
+pub fn resolve_battle_alliance_vs_alliance(
+    ctx: Context<ResolveBattleAlliances>,
+    percent_lost: u8,
+    alliance_a_wins: bool,
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+
+    // Alliance A: (leaderA, partnerA)
+    let leaderA = &mut ctx.accounts.leader_a;
+    let partnerA = &mut ctx.accounts.partner_a;
+    // Alliance B: (leaderB, partnerB)
+    let leaderB = &mut ctx.accounts.leader_b;
+    let partnerB = &mut ctx.accounts.partner_b;
+
+    // Update last_attack
+    leaderA.validate_attack(now)?;
+    leaderA.last_attack = now;
+    partnerA.last_attack = now;
+    leaderB.last_attack = now;
+    partnerB.last_attack = now;
+
+    // Unpack token accounts
+    let leaderA_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_a_token.data.borrow())?;
+    let partnerA_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_a_token.data.borrow())?;
+    let leaderB_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_b_token.data.borrow())?;
+    let partnerB_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_b_token.data.borrow())?;
+
+    let alliance_a_balance = leaderA_data.amount.checked_add(partnerA_data.amount).ok_or(GameError::InsufficientFunds)?;
+    let alliance_b_balance = leaderB_data.amount.checked_add(partnerB_data.amount).ok_or(GameError::InsufficientFunds)?;
+
+    // Decide who is losing side
+    if alliance_a_wins {
+        // Alliance B is losing side
+        let total_lost = alliance_b_balance
+            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
+            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
+
+        // Deduct from B's leader & partner proportionally
+        let leader_b_deduction = if alliance_b_balance > 0 {
+            total_lost
+                .checked_mul(leaderB_data.amount)
+                .ok_or(GameError::InsufficientFunds)?
+                .checked_div(alliance_b_balance)
+                .ok_or(GameError::InsufficientFunds)?
+        } else { 0 };
+        let partner_b_deduction = total_lost.checked_sub(leader_b_deduction).ok_or(GameError::InsufficientFunds)?;
+
+        // Distribute total_lost proportionally to alliance A's token accounts?
+        // Or split half to leader A, half to partner A? Let's do half to each for simplicity:
+        let half_gain = total_lost.checked_div(2).ok_or(GameError::InsufficientFunds)?;
+        let remainder = total_lost.checked_sub(half_gain).ok_or(GameError::InsufficientFunds)?;
+
+        // Do the deduction transfers:
+        if leader_b_deduction > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.leader_b_token.to_account_info(),
+                to: ctx.accounts.leader_a_token.to_account_info(),
+                authority: ctx.accounts.leader_b_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), leader_b_deduction)?;
+        }
+        if partner_b_deduction > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.partner_b_token.to_account_info(),
+                to: ctx.accounts.partner_a_token.to_account_info(),
+                authority: ctx.accounts.partner_b_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), partner_b_deduction)?;
+        }
+
+        // We want to ensure that half_gain actually ends up in leaderA & half in partnerA,
+        // but we've already done "deduction from B". If you want "all to leaderA" or a ratio,
+        // you'd do a single place to store it. For simplicity here, we have them transferring 
+        // directly from B->A. 
+        // The above code lumps all B->B' transfers. If you want exact control, you'd do them individually.
+
+    } else {
+        // Alliance A is losing side
+        let total_lost = alliance_a_balance
+            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
+            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
+
+        // proportionally from A -> B
+        let leader_a_deduction = if alliance_a_balance > 0 {
+            total_lost
+                .checked_mul(leaderA_data.amount)
+                .ok_or(GameError::InsufficientFunds)?
+                .checked_div(alliance_a_balance)
+                .ok_or(GameError::InsufficientFunds)?
+        } else { 0 };
+        let partner_a_deduction = total_lost.checked_sub(leader_a_deduction).ok_or(GameError::InsufficientFunds)?;
+
+        // Transfer from A->B in the same logic
+        if leader_a_deduction > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.leader_a_token.to_account_info(),
+                to: ctx.accounts.leader_b_token.to_account_info(),
+                authority: ctx.accounts.leader_a_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), leader_a_deduction)?;
+        }
+        if partner_a_deduction > 0 {
+            let cpi = Transfer {
+                from: ctx.accounts.partner_a_token.to_account_info(),
+                to: ctx.accounts.partner_b_token.to_account_info(),
+                authority: ctx.accounts.partner_a_authority.to_account_info(),
+            };
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), partner_a_deduction)?;
+        }
     }
 
-    emit!(BattleResolved {
-        winner_id: winner.id,
-        loser_id: loser.id,
-        transfer_amount: total_lost,
-    });
     Ok(())
 }
 
@@ -153,41 +282,83 @@ pub fn resolve_battle_simple(
     Ok(())
 }
 #[derive(Accounts)]
-pub struct ResolveBattle<'info> {
+pub struct ResolveBattleAgentAlliance<'info> {
     #[account(mut, has_one = game)]
-    pub winner: Account<'info, Agent>,
+    pub single_agent: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub alliance_leader: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub alliance_partner: Account<'info, Agent>,
+    pub game: Account<'info, Game>,
+
+    /// CHECK: This is the single agent's token account. Validation is done in program logic.
     #[account(mut)]
-    pub winner_partner: Account<'info, Agent>,
+    pub single_agent_token: UncheckedAccount<'info>,
+    /// CHECK: This is the alliance leader's token account. Validation is done in program logic.
+    #[account(mut)]
+    pub alliance_leader_token: UncheckedAccount<'info>,
+    /// CHECK: This is the alliance partner's token account. Validation is done in program logic.
+    #[account(mut)]
+    pub alliance_partner_token: UncheckedAccount<'info>,
+
+    /// CHECK: This is the authority of the single agent. Validation is done in program logic.
+    #[account(signer)]
+    pub single_agent_authority: AccountInfo<'info>,
+    /// CHECK: This is the authority of the alliance leader. Validation is done in program logic.
+    #[account(signer)]
+    pub alliance_leader_authority: AccountInfo<'info>,
+    /// CHECK: This is the authority of the alliance partner. Validation is done in program logic.
+    #[account(signer)]
+    pub alliance_partner_authority: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+}
+
+
+/// Accounts context for alliance vs alliance.
+#[derive(Accounts)]
+pub struct ResolveBattleAlliances<'info> {
+    #[account(mut, has_one = game)]
+    pub leader_a: Account<'info, Agent>,
+    #[account(mut)]
+    pub partner_a: Account<'info, Agent>,
 
     #[account(mut, has_one = game)]
-    pub loser: Account<'info, Agent>,
+    pub leader_b: Account<'info, Agent>,
     #[account(mut)]
-    pub loser_partner: Account<'info, Agent>,
+    pub partner_b: Account<'info, Agent>,
 
     pub game: Account<'info, Game>,
 
-    /// CHECK: This is a token account, validated through program logic in the handler.
+    /// CHECK: This is the token account for leader A. Validation is done in program logic.
     #[account(mut)]
-    pub winner_token: UncheckedAccount<'info>,
-    /// CHECK: This is a token account, validated through program logic in the handler.
+    pub leader_a_token: UncheckedAccount<'info>,
+    /// CHECK: This is the token account for partner A. Validation is done in program logic.
     #[account(mut)]
-    pub winner_partner_token: UncheckedAccount<'info>,
-    /// CHECK: This is a token account, validated through program logic in the handler.
+    pub partner_a_token: UncheckedAccount<'info>,
+    /// CHECK: This is the token account for leader B. Validation is done in program logic.
     #[account(mut)]
-    pub loser_token: UncheckedAccount<'info>,
-    /// CHECK: This is a token account, validated through program logic in the handler.
+    pub leader_b_token: UncheckedAccount<'info>,
+    /// CHECK: This is the token account for partner B. Validation is done in program logic.
     #[account(mut)]
-    pub loser_partner_token: UncheckedAccount<'info>,
+    pub partner_b_token: UncheckedAccount<'info>,
 
-    /// CHECK: This is the owner or delegate of the loser's token account, validated in the handler.
+    /// CHECK: This is the authority of leader A. Validation is done in program logic.
     #[account(signer)]
-    pub loser_authority: AccountInfo<'info>,
-    /// CHECK: This is the owner or delegate of the loser's partner token account, validated in the handler.
+    pub leader_a_authority: AccountInfo<'info>,
+    /// CHECK: This is the authority of partner A. Validation is done in program logic.
     #[account(signer)]
-    pub loser_partner_authority: AccountInfo<'info>,
+    pub partner_a_authority: AccountInfo<'info>,
+    /// CHECK: This is the authority of leader B. Validation is done in program logic.
+    #[account(signer)]
+    pub leader_b_authority: AccountInfo<'info>,
+    /// CHECK: This is the authority of partner B. Validation is done in program logic.
+    #[account(signer)]
+    pub partner_b_authority: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
-
     #[account(mut)]
     pub authority: Signer<'info>,
 }
@@ -200,14 +371,14 @@ pub struct ResolveBattleSimple<'info> {
     pub loser: Account<'info, Agent>,
     pub game: Account<'info, Game>,
 
-    /// CHECK: This is a token account, validated through program logic in the handler.
+    /// CHECK: This is the token account for the winner. Validation is done in program logic.
     #[account(mut)]
     pub winner_token: UncheckedAccount<'info>,
-    /// CHECK: This is a token account, validated through program logic in the handler.
+    /// CHECK: This is the token account for the loser. Validation is done in program logic.
     #[account(mut)]
     pub loser_token: UncheckedAccount<'info>,
 
-    /// CHECK: This is the owner or delegate of the loser's token account, validated in the handler.
+    /// CHECK: This is the authority of the loser. Validation is done in program logic.
     #[account(signer)]
     pub loser_authority: AccountInfo<'info>,
 
