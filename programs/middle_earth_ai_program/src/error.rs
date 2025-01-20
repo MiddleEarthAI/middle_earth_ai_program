@@ -44,4 +44,7 @@ pub enum GameError {
     AgentAlreadyExists,
     #[msg("Agent name is too long.")]
     NameTooLong,
+   
+    #[msg("You must wait until cooldown ends.")]
+    CooldownNotOver,
 }
