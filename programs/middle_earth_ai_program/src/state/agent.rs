@@ -66,7 +66,7 @@ impl Agent {
         let added_cooldown = match terrain {
             TerrainType::Plain => (1 * 3600) - 100 ,      
             TerrainType::River => (2 * 3600) - 300,      
-            TerrainType::Mountain => (3 * 3600) - 600,   // 3 hours
+            TerrainType::Mountain => (3 * 3600) - 600,   
         };
         self.next_move_time = now + added_cooldown;
     }
