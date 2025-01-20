@@ -22,6 +22,6 @@ pub struct StakeInfo {
 
 impl StakeInfo {
     // This is the extra space required (not including the 8-byte discriminator).
-    pub const INIT_SPACE: usize = 32 + 32 + 8 + 8 + 8 + 1;
+    pub const INIT_SPACE: usize = 32 + 32 + 8 + 8 + 8 + 1 + 8;
 }
 

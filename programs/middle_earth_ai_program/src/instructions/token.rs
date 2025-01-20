@@ -291,7 +291,7 @@ pub struct StakeTokens<'info> {
     )]
     pub stake_info: Account<'info, StakeInfo>,
 
-    #[account(mut, constraint = *staker_source.owner == *authority.key)]
+    #[account(mut, constraint = *staker_source.owner == anchor_spl::token::ID)]
     /// CHECK: This is a token account owned by the staker.
     pub staker_source: AccountInfo<'info>,
 
