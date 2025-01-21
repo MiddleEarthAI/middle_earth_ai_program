@@ -1,458 +1,402 @@
-// import * as anchor from "@coral-xyz/anchor";
-// import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
-// import { Program, BN } from "@coral-xyz/anchor";
-// import { MiddleEarthAiProgram } from "../target/types/middle_earth_ai_program";
-// import { expect } from "chai";
+import * as anchor from "@coral-xyz/anchor";
+import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
+import { Program, BN } from "@coral-xyz/anchor";
+import { MiddleEarthAiProgram } from "../target/types/middle_earth_ai_program";
+import { expect } from "chai";
 
-// // SPL Token functions from @solana/spl-token.
-// import {
-//   createMint,
-//   getOrCreateAssociatedTokenAccount,
-//   mintTo,
-//   getAccount,
-//   TOKEN_PROGRAM_ID,
-//   ASSOCIATED_TOKEN_PROGRAM_ID,
-// } from "@solana/spl-token";
+// SPL Token functions from @solana/spl-token.
+import {
+  createMint,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
+  getAccount,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 
-// // ----------------------------
-// // AGENT AND GAME TESTS
-// // ----------------------------
-// describe("Agent Tests", () => {
-//   const provider = anchor.AnchorProvider.local();
-//   anchor.setProvider(provider);
+describe("Battle Contract Tests", () => {
+  // ---------------------------------------
+  // Anchor / Program Setup
+  // ---------------------------------------
+  const provider = anchor.AnchorProvider.local();
+  anchor.setProvider(provider);
+  const connection = provider.connection;
+  const payer = provider.wallet.payer;
+  const program = anchor.workspace.MiddleEarthAiProgram as Program<MiddleEarthAiProgram>;
 
-//   const program = anchor.workspace.MiddleEarthAiProgram as Program<MiddleEarthAiProgram>;
-//   let gamePda: PublicKey;
-//   const gameId = new BN(999);
-//   const newAgentId = 100; // Unique ID for an agent to avoid conflicts
-//   const unauthorizedWallet = Keypair.generate();
+  // We'll use an existing Game with id = 999
+  const gameId = new BN(999);
+  let gamePda: PublicKey;
 
-//   // Helper: fetch agent accounts if needed
-//   const getAgentAccountNs = () => (program.account as any).agent || (program.account as any).Agent;
+  // We'll create a new SPL token mint to represent the currency used in battles
+  let tokenMint: PublicKey;
 
-//   before("Initialize game", async () => {
-//     // Derive game PDA
-//     [gamePda] = await PublicKey.findProgramAddress(
-//       [Buffer.from("game"), gameId.toBuffer("le", 4)],
-//       program.programId
-//     );
-//     try {
-//       await program.methods
-//         .initializeGame(gameId, new BN(123))
-//         .accounts({
-//           game: gamePda,
-//           authority: provider.wallet.publicKey,
-//           systemProgram: SystemProgram.programId,
-//         })
-//         .rpc();
-//       console.log("Game initialized or already active.");
-//     } catch (err: any) {
-//       console.log("Game initialization skipped (already initialized?):", err.message);
-//     }
-//   });
+  // For each agent ID, we'll store their token account address in a map
+  const tokenAccounts: { [agentId: number]: PublicKey } = {};
 
-//   describe("Register Agent", () => {
-//     it("Registers an agent successfully (authorized)", async () => {
-//       const [agentPda] = await PublicKey.findProgramAddress(
-//         [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([newAgentId])],
-//         program.programId
-//       );
+  // Some agent IDs used in alliance battles
+  const allianceBattleAgents = { 
+    singleAgent: 3,       // "Solo" agent in agent-vs-alliance
+    allianceLeader: 5, 
+    alliancePartner: 6 
+  };
 
-//       const txSig = await program.methods
-//         .registerAgent(newAgentId, 10, -4, "Gandalf")
-//         .accounts({
-//           game: gamePda,
-//           agent: agentPda,
-//           authority: provider.wallet.publicKey,
-//           systemProgram: SystemProgram.programId,
-//         })
-//         .rpc();
+  // For an alliance-vs-alliance scenario:
+  const allianceA = { leader: 10, partner: 11 };
+  const allianceB = { leader: 12, partner: 13 };
 
-//       console.log("Register agent tx sig:", txSig);
+  // For a simple (one-on-one) battle:
+  const simpleBattle = { winner: 20, loser: 21 };
 
-//       const agentAcc = await getAgentAccountNs().fetch(agentPda);
-//       expect(agentAcc.id).to.equal(newAgentId);
-//       expect(agentAcc.isAlive).to.be.true;
-//       console.log("Agent registered & verified.");
-//     });
-//   });
+  // A helper to derive an agent's PDA from your existing seeds: ["agent", gamePda, [agentId]]
+  const deriveAgentPda = async (agentId: number): Promise<PublicKey> => {
+    const [pda] = await PublicKey.findProgramAddress(
+      [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([agentId])],
+      program.programId
+    );
+    return pda;
+  };
 
-//   describe("Kill Agent", () => {
-//     it("Kills the agent and verifies", async () => {
-//       const [agentPda] = await PublicKey.findProgramAddress(
-//         [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([newAgentId])],
-//         program.programId
-//       );
+  // ---------------------------------------
+  // 1) Initialize Game or Use Existing
+  // ---------------------------------------
+  before("Derive Game PDA and ensure game is initialized", async () => {
+    [gamePda] = await PublicKey.findProgramAddress(
+      [Buffer.from("game"), gameId.toBuffer("le", 4)],
+      program.programId
+    );
 
-//       const txSig = await program.methods
-//         .killAgent()
-//         .accounts({
-//           agent: agentPda,
-//           authority: provider.wallet.publicKey,
-//         })
-//         .rpc();
-//       console.log("Kill agent tx sig:", txSig);
+    console.log("Game PDA:", gamePda.toBase58());
 
-//       const agentAcc = await getAgentAccountNs().fetch(agentPda);
-//       expect(agentAcc.isAlive).to.be.false;
-//       console.log("Agent is now dead.");
-//     });
-//   });
+    try {
+      await program.methods
+        .initializeGame(gameId, 123) // if it's already active, it will fail (which is fine)
+        .accounts({
+          game: gamePda,
+          authority: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      console.log("Game initialized successfully.");
+    } catch (err: any) {
+      console.log("Game already initialized or error:", err.message);
+    }
+  });
 
-//   describe("Agent Access Control", () => {
-//     it("Fails to register with unauthorized wallet", async () => {
-//       const [agentPda] = await PublicKey.findProgramAddress(
-//         [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([101])],
-//         program.programId
-//       );
+  // ---------------------------------------
+  // 2) Create Mint & Fund Agents
+  // ---------------------------------------
+  before("Create SPL token mint + agent token accounts", async () => {
+    // Create a new token mint. Mint authority = provider.wallet
+    tokenMint = await createMint(
+      connection,
+      payer,
+      provider.wallet.publicKey,
+      null,
+      9 // decimal
+    );
+    console.log("Created token mint:", tokenMint.toBase58());
 
-//       let failed = false;
-//       try {
-//         await program.methods
-//           .registerAgent(101, 15, 20, "Saruman")
-//           .accounts({
-//             game: gamePda,
-//             agent: agentPda,
-//             authority: unauthorizedWallet.publicKey,
-//             systemProgram: SystemProgram.programId,
-//           })
-//           .signers([unauthorizedWallet])
-//           .rpc();
-//       } catch (err: any) {
-//         console.log("Unauthorized registerAgent as expected:", err.message);
-//         failed = true;
-//       }
-//       expect(failed).to.be.true;
-//     });
+    // We'll gather all agent IDs who need token balances
+    const allAgentIds = [
+      allianceBattleAgents.singleAgent,
+      allianceBattleAgents.allianceLeader,
+      allianceBattleAgents.alliancePartner,
+      allianceA.leader,
+      allianceA.partner,
+      allianceB.leader,
+      allianceB.partner,
+      simpleBattle.winner,
+      simpleBattle.loser
+    ];
 
-//     it("Fails to kill agent with unauthorized wallet", async () => {
-//       const [agentPda] = await PublicKey.findProgramAddress(
-//         [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([newAgentId])],
-//         program.programId
-//       );
+    const initialMintAmount = 5_000_000_000; // 5_000 tokens if decimals=9
 
-//       let failed = false;
-//       try {
-//         await program.methods
-//           .killAgent()
-//           .accounts({
-//             agent: agentPda,
-//             authority: unauthorizedWallet.publicKey,
-//           })
-//           .signers([unauthorizedWallet])
-//           .rpc();
-//       } catch (err: any) {
-//         console.log("Unauthorized killAgent as expected:", err.message);
-//         failed = true;
-//       }
-//       expect(failed).to.be.true;
-//     });
-//   });
-// });
+    // For each agent ID, create (or fetch) an associated token account & mint them some tokens
+    for (const id of allAgentIds) {
+      const ata = await getOrCreateAssociatedTokenAccount(
+        connection,
+        payer,
+        tokenMint,
+        provider.wallet.publicKey,  // Owner = same wallet for simplicity
+        false,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      );
+      tokenAccounts[id] = ata.address;
 
-// // ----------------------------
-// // BATTLE CONTRACT TESTS (using SPL Tokens)
-// // ----------------------------
-// describe("Battle Contract Tests", () => {
-//   const provider = anchor.AnchorProvider.local();
-//   anchor.setProvider(provider);
+      // Mint tokens so that % deductions won't cause zero balances
+      await mintTo(
+        connection,
+        payer,
+        tokenMint,
+        ata.address,
+        provider.wallet.publicKey,
+        initialMintAmount
+      );
+      console.log(`Minted ${initialMintAmount} tokens to agent ${id} at ATA ${ata.address.toBase58()}`);
+    }
+  });
 
-//   const connection = provider.connection;
-//   const payer = provider.wallet.payer;
-//   const program = anchor.workspace.MiddleEarthAiProgram as Program<MiddleEarthAiProgram>;
+  // ---------------------------------------
+  // 3) Register Agents 
+  // (Simplified. In real usage, you'd do this for each agent with actual seeds/PDAs.)
+  // ---------------------------------------
+  before("Register all needed agents", async () => {
+    // We'll define a helper function:
+    const registerAgent = async (agentId: number, x: number, y: number, name: string) => {
+      const agentPda = await deriveAgentPda(agentId);
+      try {
+        // If it already exists, skip
+        await program.account.agent.fetch(agentPda);
+        console.log(`Agent ${agentId} already registered as ${name}`);
+      } catch {
+        // Otherwise, register
+        await program.methods
+          .registerAgent(agentId, x, y, name)
+          .accounts({
+            game: gamePda,
+            agent: agentPda,
+            authority: provider.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        console.log(`Registered agent ${name} (ID=${agentId})`);
+      }
+    };
 
-//   const gameId = new BN(999);
-//   let gamePda: PublicKey;
-//   let tokenMint: PublicKey;
-//   // ATA addresses for each agent ID
-//   const tokenAccounts: { [agentId: number]: PublicKey } = {};
+    // Register each agent we need:
+    await registerAgent(allianceBattleAgents.singleAgent, 0, 0, "SoloAgent");
+    await registerAgent(allianceBattleAgents.allianceLeader, 1, 1, "AllianceLeader");
+    await registerAgent(allianceBattleAgents.alliancePartner, 2, 2, "AlliancePartner");
 
-//   // Predefined agent IDs for alliances or simple battles
-//   const allianceBattleAgents = { winner: 3, winnerPartner: 4, loser: 5, loserPartner: 6 };
-//   const simpleBattleAgents = { winner: 7, loser: 8 };
+    await registerAgent(allianceA.leader, 10, 10, "AllianceA_Leader");
+    await registerAgent(allianceA.partner, 11, 11, "AllianceA_Partner");
+    await registerAgent(allianceB.leader, -10, -10, "AllianceB_Leader");
+    await registerAgent(allianceB.partner, -11, -11, "AllianceB_Partner");
 
-//   const unauthorizedWallet = Keypair.generate();
+    await registerAgent(simpleBattle.winner, 5, 5, "SimpleBattleWinner");
+    await registerAgent(simpleBattle.loser, -5, -5, "SimpleBattleLoser");
+  });
 
-//   // Helper: derive agent PDA
-//   const deriveAgentPda = async (agentId: number): Promise<PublicKey> => {
-//     const [pda] = await PublicKey.findProgramAddress(
-//       [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([agentId])],
-//       program.programId
-//     );
-//     return pda;
-//   };
+  // ---------------------------------------
+  // TESTS
+  // ---------------------------------------
 
-//   before("Derive game PDA", async () => {
-//     [gamePda] = await PublicKey.findProgramAddress(
-//       [Buffer.from("game"), gameId.toBuffer("le", 4)],
-//       program.programId
-//     );
-//     console.log("Derived game PDA:", gamePda.toBase58());
-//   });
+  // -----------
+  // Single agent vs alliance
+  // -----------
+  describe("resolve_battle_agent_vs_alliance", () => {
+    it("Agent wins vs alliance", async () => {
+      const singleAgentId = allianceBattleAgents.singleAgent;
+      const allianceLeaderId = allianceBattleAgents.allianceLeader;
+      const alliancePartnerId = allianceBattleAgents.alliancePartner;
 
-//   before("Create mint & token accounts", async () => {
-//     tokenMint = await createMint(connection, payer, payer.publicKey, null, 9);
-//     console.log("Created token mint:", tokenMint.toBase58());
+      // PDAs
+      const singlePda = await deriveAgentPda(singleAgentId);
+      const leaderPda = await deriveAgentPda(allianceLeaderId);
+      const partnerPda = await deriveAgentPda(alliancePartnerId);
 
-//     const allIds = [
-//       ...Object.values(allianceBattleAgents),
-//       ...Object.values(simpleBattleAgents),
-//     ];
-//     const mintAmount = 6_000_000_000; // so we can see changes if they happen
+      // Initial token balances
+      const initSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
+      const initLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
+      console.log(
+        "Before: solo balance=", 
+        Number(initSolo.amount),
+        "leader balance=", 
+        Number(initLeader.amount)
+      );
 
-//     for (const id of allIds) {
-//       const ata = await getOrCreateAssociatedTokenAccount(
-//         connection,
-//         payer,
-//         tokenMint,
-//         provider.wallet.publicKey,
-//         false,
-//         TOKEN_PROGRAM_ID,
-//         ASSOCIATED_TOKEN_PROGRAM_ID
-//       );
-//       tokenAccounts[id] = ata.address;
-//       console.log(`Token account for agent ${id}: ${ata.address.toBase58()}`);
+      // Agent is winner => param = `true`, percent_lost = 30
+      await program.methods
+        .resolveBattleAgentVsAlliance(30, true)
+        .accounts({
+          singleAgent: singlePda,
+          allianceLeader: leaderPda,
+          alliancePartner: partnerPda,
+          game: gamePda,
+          singleAgentToken: tokenAccounts[singleAgentId],
+          allianceLeaderToken: tokenAccounts[allianceLeaderId],
+          alliancePartnerToken: tokenAccounts[alliancePartnerId],
+          singleAgentAuthority: provider.wallet.publicKey,
+          allianceLeaderAuthority: provider.wallet.publicKey,
+          alliancePartnerAuthority: provider.wallet.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
 
-//       await mintTo(
-//         connection,
-//         payer,
-//         tokenMint,
-//         ata.address,
-//         provider.wallet.publicKey,
-//         mintAmount
-//       );
-//       console.log(`Minted ${mintAmount} tokens to agent ${id}`);
-//     }
-//   });
+      // Check final balances
+      const finalSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
+      const finalLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
+      console.log(
+        "After: solo balance=",
+        Number(finalSolo.amount),
+        "leader balance=",
+        Number(finalLeader.amount)
+      );
+      // We expect finalSolo to be higher than initSolo
+      expect(Number(finalSolo.amount)).to.be.greaterThan(Number(initSolo.amount));
+    });
 
-//   before("Register needed agents & form alliance", async () => {
-//     const registerAgent = async (agentId: number, x: number, y: number, name: string) => {
-//       const pda = await deriveAgentPda(agentId);
-//       try {
-//         await program.account.agent.fetch(pda);
-//         console.log(`Agent ${name} (ID ${agentId}) already registered.`);
-//       } catch {
-//         // Register if missing
-//         await program.methods
-//           .registerAgent(agentId, x, y, name)
-//           .accounts({
-//             game: gamePda,
-//             agent: pda,
-//             authority: provider.wallet.publicKey,
-//             systemProgram: SystemProgram.programId,
-//           })
-//           .rpc();
-//         console.log(`Registered agent ${name} (ID: ${agentId})`);
-//       }
-//     };
+    it("Agent loses vs alliance", async () => {
+      const singleAgentId = allianceBattleAgents.singleAgent;
+      const allianceLeaderId = allianceBattleAgents.allianceLeader;
+      const alliancePartnerId = allianceBattleAgents.alliancePartner;
 
-//     // Alliance battle
-//     await registerAgent(allianceBattleAgents.winner, 10, 10, "AllianceWinner");
-//     await registerAgent(allianceBattleAgents.winnerPartner, 11, 10, "AllianceWinnerPartner");
-//     await registerAgent(allianceBattleAgents.loser, -5, -5, "AllianceLoser");
-//     await registerAgent(allianceBattleAgents.loserPartner, -6, -5, "AllianceLoserPartner");
+      const singlePda = await deriveAgentPda(singleAgentId);
+      const leaderPda = await deriveAgentPda(allianceLeaderId);
+      const partnerPda = await deriveAgentPda(alliancePartnerId);
 
-//     // Simple battle
-//     await registerAgent(simpleBattleAgents.winner, 5, 5, "SimpleWinner");
-//     await registerAgent(simpleBattleAgents.loser, -2, -2, "SimpleLoser");
+      const initSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
+      console.log("Before lose: solo balance=", Number(initSolo.amount));
 
-//     // Form alliance for test
-//     const winnerPda = await deriveAgentPda(allianceBattleAgents.winner);
-//     const loserPda = await deriveAgentPda(allianceBattleAgents.loser);
-//     try {
-//       await program.methods
-//         .formAlliance()
-//         .accounts({
-//           initiator: winnerPda,
-//           targetAgent: loserPda,
-//           game: gamePda,
-//           authority: provider.wallet.publicKey,
-//         })
-//         .rpc();
-//       console.log("Alliance formed between winner & loser.");
-//     } catch (err: any) {
-//       console.log("Alliance possibly already formed:", err.message);
-//     }
-//   });
+      // agent_is_winner=false => single agent loses 25%
+      await program.methods
+        .resolveBattleAgentVsAlliance(25, false)
+        .accounts({
+          singleAgent: singlePda,
+          allianceLeader: leaderPda,
+          alliancePartner: partnerPda,
+          game: gamePda,
+          singleAgentToken: tokenAccounts[singleAgentId],
+          allianceLeaderToken: tokenAccounts[allianceLeaderId],
+          alliancePartnerToken: tokenAccounts[alliancePartnerId],
+          singleAgentAuthority: provider.wallet.publicKey,
+          allianceLeaderAuthority: provider.wallet.publicKey,
+          alliancePartnerAuthority: provider.wallet.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
 
-//   // 1) resolve_battle_agent_vs_alliance
-//   describe("resolve_battle_agent_vs_alliance", () => {
-//     it("Agent wins vs alliance", async () => {
-//       // singleAgent is allianceBattleAgents.winner
-//       // alliance = { leader: allianceBattleAgents.loser, partner: allianceBattleAgents.loserPartner }
-//       const singleAgentPda = await deriveAgentPda(allianceBattleAgents.winner);
-//       const allianceLeaderPda = await deriveAgentPda(allianceBattleAgents.loser);
-//       const alliancePartnerPda = await deriveAgentPda(allianceBattleAgents.loserPartner);
+      const finalSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
+      console.log("After lose: solo balance=", Number(finalSolo.amount));
+      expect(Number(finalSolo.amount)).to.be.lessThan(Number(initSolo.amount));
+    });
+  });
 
-//       const initSingle = await getAccount(connection, tokenAccounts[allianceBattleAgents.winner]);
-//       const initLeader = await getAccount(connection, tokenAccounts[allianceBattleAgents.loser]);
-//       console.log("Before battle: single:", Number(initSingle.amount), "leader:", Number(initLeader.amount));
+  // -----------
+  // Alliance vs Alliance
+  // -----------
+  describe("resolve_battle_alliance_vs_alliance", () => {
+    it("Alliance A wins vs Alliance B", async () => {
+      // A's PDAs
+      const leaderA = await deriveAgentPda(allianceA.leader);
+      const partnerA = await deriveAgentPda(allianceA.partner);
+      // B's PDAs
+      const leaderB = await deriveAgentPda(allianceB.leader);
+      const partnerB = await deriveAgentPda(allianceB.partner);
 
-//       await program.methods
-//         .resolveBattleAgentVsAlliance(20, true) // 20% from alliance -> single agent
-//         .accounts({
-//           singleAgent: singleAgentPda,
-//           allianceLeader: allianceLeaderPda,
-//           alliancePartner: alliancePartnerPda,
-//           game: gamePda,
-//           singleAgentToken: tokenAccounts[allianceBattleAgents.winner],
-//           allianceLeaderToken: tokenAccounts[allianceBattleAgents.loser],
-//           alliancePartnerToken: tokenAccounts[allianceBattleAgents.loserPartner],
-//           singleAgentAuthority: provider.wallet.publicKey,
-//           allianceLeaderAuthority: provider.wallet.publicKey,
-//           alliancePartnerAuthority: provider.wallet.publicKey,
-//           tokenProgram: TOKEN_PROGRAM_ID,
-//           authority: provider.wallet.publicKey,
-//         })
-//         .rpc();
+      // Check initial leaderB balance
+      const initLeaderB = await getAccount(connection, tokenAccounts[allianceB.leader]);
+      console.log("B.Leader init balance =", Number(initLeaderB.amount));
 
-//       const finalSingle = await getAccount(connection, tokenAccounts[allianceBattleAgents.winner]);
-//       const finalLeader = await getAccount(connection, tokenAccounts[allianceBattleAgents.loser]);
-//       console.log(
-//         "After battle: single:",
-//         Number(finalSingle.amount),
-//         "leader:",
-//         Number(finalLeader.amount)
-//       );
-//       // If different owners exist, finalSingle should be > initSingle
-//       expect(Number(finalSingle.amount)).to.be.greaterThanOrEqual(Number(initSingle.amount));
-//     });
+      // alliance_a_wins = true => B loses 20%
+      await program.methods
+        .resolveBattleAllianceVsAlliance(20, true)
+        .accounts({
+          leaderA,
+          partnerA,
+          leaderB,
+          partnerB,
+          game: gamePda,
+          leaderAToken: tokenAccounts[allianceA.leader],
+          partnerAToken: tokenAccounts[allianceA.partner],
+          leaderBToken: tokenAccounts[allianceB.leader],
+          partnerBToken: tokenAccounts[allianceB.partner],
+          leaderAAuthority: provider.wallet.publicKey,
+          partnerAAuthority: provider.wallet.publicKey,
+          leaderBAuthority: provider.wallet.publicKey,
+          partnerBAuthority: provider.wallet.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
 
-//     it("Agent loses vs alliance", async () => {
-//       // same PDAs, but agent_is_winner = false
-//       const singleAgentPda = await deriveAgentPda(allianceBattleAgents.winner);
-//       const allianceLeaderPda = await deriveAgentPda(allianceBattleAgents.loser);
-//       const alliancePartnerPda = await deriveAgentPda(allianceBattleAgents.loserPartner);
+      const finalLeaderB = await getAccount(connection, tokenAccounts[allianceB.leader]);
+      console.log("B.Leader final balance =", Number(finalLeaderB.amount));
+      expect(Number(finalLeaderB.amount)).to.be.lessThan(Number(initLeaderB.amount));
+    });
+  });
 
-//       const initSingle = await getAccount(connection, tokenAccounts[allianceBattleAgents.winner]);
-//       console.log("Before: agent losing, singleAgent:", Number(initSingle.amount));
+  // -----------
+  // Simple battle: one vs one
+  // -----------
+  describe("resolve_battle_simple", () => {
+    it("loser pays 20% to winner", async () => {
+      const winnerPda = await deriveAgentPda(simpleBattle.winner);
+      const loserPda = await deriveAgentPda(simpleBattle.loser);
 
-//       await program.methods
-//         .resolveBattleAgentVsAlliance(20, false) // single loses 20% to alliance
-//         .accounts({
-//           singleAgent: singleAgentPda,
-//           allianceLeader: allianceLeaderPda,
-//           alliancePartner: alliancePartnerPda,
-//           game: gamePda,
-//           singleAgentToken: tokenAccounts[allianceBattleAgents.winner],
-//           allianceLeaderToken: tokenAccounts[allianceBattleAgents.loser],
-//           alliancePartnerToken: tokenAccounts[allianceBattleAgents.loserPartner],
-//           singleAgentAuthority: provider.wallet.publicKey,
-//           allianceLeaderAuthority: provider.wallet.publicKey,
-//           alliancePartnerAuthority: provider.wallet.publicKey,
-//           tokenProgram: TOKEN_PROGRAM_ID,
-//           authority: provider.wallet.publicKey,
-//         })
-//         .rpc();
+      const initWinner = await getAccount(connection, tokenAccounts[simpleBattle.winner]);
+      const initLoser = await getAccount(connection, tokenAccounts[simpleBattle.loser]);
 
-//       const finalSingle = await getAccount(connection, tokenAccounts[allianceBattleAgents.winner]);
-//       console.log("After: agent losing, singleAgent:", Number(finalSingle.amount));
+      console.log(
+        "Before simple battle: winner=", 
+        Number(initWinner.amount), 
+        "loser=", 
+        Number(initLoser.amount)
+      );
 
-//       expect(Number(finalSingle.amount)).to.be.lessThanOrEqual(Number(initSingle.amount));
-//     });
-//   });
+      await program.methods
+        .resolveBattleSimple(20) // 20% from loser->winner
+        .accounts({
+          winner: winnerPda,
+          loser: loserPda,
+          game: gamePda,
+          winnerToken: tokenAccounts[simpleBattle.winner],
+          loserToken: tokenAccounts[simpleBattle.loser],
+          loserAuthority: provider.wallet.publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
 
-//   // 2) resolve_battle_alliance_vs_alliance
-//   describe("resolve_battle_alliance_vs_alliance", () => {
-//     it("Alliance A wins vs Alliance B", async () => {
-//       const leaderAPda = await deriveAgentPda(allianceBattleAgents.winner);
-//       const partnerAPda = await deriveAgentPda(allianceBattleAgents.winnerPartner);
-//       const leaderBPda = await deriveAgentPda(allianceBattleAgents.loser);
-//       const partnerBPda = await deriveAgentPda(allianceBattleAgents.loserPartner);
+      const finalWinner = await getAccount(connection, tokenAccounts[simpleBattle.winner]);
+      const finalLoser = await getAccount(connection, tokenAccounts[simpleBattle.loser]);
+      console.log(
+        "After simple battle: winner=", 
+        Number(finalWinner.amount), 
+        "loser=", 
+        Number(finalLoser.amount)
+      );
 
-//       const initLeaderB = await getAccount(connection, tokenAccounts[allianceBattleAgents.loser]);
-//       console.log("Alliance B Leader init:", Number(initLeaderB.amount));
+      expect(Number(finalWinner.amount)).to.be.greaterThan(Number(initWinner.amount));
+      expect(Number(finalLoser.amount)).to.be.lessThan(Number(initLoser.amount));
+    });
+  });
 
-//       await program.methods
-//         .resolveBattleAllianceVsAlliance(20, true) // 20% from alliance B -> A
-//         .accounts({
-//           leaderA: leaderAPda,
-//           partnerA: partnerAPda,
-//           leaderB: leaderBPda,
-//           partnerB: partnerBPda,
-//           game: gamePda,
-//           leaderAToken: tokenAccounts[allianceBattleAgents.winner],
-//           partnerAToken: tokenAccounts[allianceBattleAgents.winnerPartner],
-//           leaderBToken: tokenAccounts[allianceBattleAgents.loser],
-//           partnerBToken: tokenAccounts[allianceBattleAgents.loserPartner],
-//           leaderAAuthority: provider.wallet.publicKey,
-//           partnerAAuthority: provider.wallet.publicKey,
-//           leaderBAuthority: provider.wallet.publicKey,
-//           partnerBAuthority: provider.wallet.publicKey,
-//           tokenProgram: TOKEN_PROGRAM_ID,
-//           authority: provider.wallet.publicKey,
-//         })
-//         .rpc();
+  // -----------
+  // Access Control test (optional)
+  // -----------
+  describe("Battle access control", () => {
+    const unauthorizedWallet = Keypair.generate();
 
-//       const finalLeaderB = await getAccount(connection, tokenAccounts[allianceBattleAgents.loser]);
-//       console.log("Alliance B Leader final:", Number(finalLeaderB.amount));
-//       expect(Number(finalLeaderB.amount)).to.be.lessThanOrEqual(Number(initLeaderB.amount));
-//     });
-//   });
+    it("Fails to call resolveBattleSimple with unauthorized wallet", async () => {
+      const winnerPda = await deriveAgentPda(simpleBattle.winner);
+      const loserPda = await deriveAgentPda(simpleBattle.loser);
 
-//   // 3) resolve_battle_simple
-//   describe("resolve_battle_simple", () => {
-//     it("Resolves a simple battle, updates balances", async () => {
-//       const winnerPda = await deriveAgentPda(simpleBattleAgents.winner);
-//       const loserPda = await deriveAgentPda(simpleBattleAgents.loser);
-
-//       const initWinner = await getAccount(connection, tokenAccounts[simpleBattleAgents.winner]);
-//       const initLoser = await getAccount(connection, tokenAccounts[simpleBattleAgents.loser]);
-
-//       console.log("Before (simple): winner:", Number(initWinner.amount), "loser:", Number(initLoser.amount));
-
-//       const txSig = await program.methods
-//         .resolveBattleSimple(20) // 20% from loser -> winner
-//         .accounts({
-//           winner: winnerPda,
-//           loser: loserPda,
-//           game: gamePda,
-//           winnerToken: tokenAccounts[simpleBattleAgents.winner],
-//           loserToken: tokenAccounts[simpleBattleAgents.loser],
-//           loserAuthority: provider.wallet.publicKey,
-//           tokenProgram: TOKEN_PROGRAM_ID,
-//           authority: provider.wallet.publicKey,
-//         })
-//         .rpc();
-
-//       console.log("resolveBattleSimple tx sig:", txSig);
-
-//       const finalWinner = await getAccount(connection, tokenAccounts[simpleBattleAgents.winner]);
-//       const finalLoser = await getAccount(connection, tokenAccounts[simpleBattleAgents.loser]);
-//       console.log("After (simple): winner:", Number(finalWinner.amount), "loser:", Number(finalLoser.amount));
-
-//       // If using the same wallet for all accounts, the net effect might be zero. 
-//       expect(Number(finalLoser.amount)).to.be.lessThanOrEqual(Number(initLoser.amount));
-//     });
-//   });
-
-//   // 4) Access control for battle
-//   describe("Access Control (Battle)", () => {
-//     it("Fails to resolve a simple battle w/ unauthorized wallet", async () => {
-//       const winnerPda = await deriveAgentPda(simpleBattleAgents.winner);
-//       const loserPda = await deriveAgentPda(simpleBattleAgents.loser);
-
-//       let failed = false;
-//       try {
-//         await program.methods
-//           .resolveBattleSimple(20)
-//           .accounts({
-//             winner: winnerPda,
-//             loser: loserPda,
-//             game: gamePda,
-//             winnerToken: tokenAccounts[simpleBattleAgents.winner],
-//             loserToken: tokenAccounts[simpleBattleAgents.loser],
-//             loserAuthority: provider.wallet.publicKey,
-//             tokenProgram: TOKEN_PROGRAM_ID,
-//             authority: unauthorizedWallet.publicKey,
-//           })
-//           .signers([unauthorizedWallet])
-//           .rpc();
-//       } catch (err: any) {
-//         console.log("Unauthorized resolution prevented:", err.message);
-//         failed = true;
-//       }
-//       expect(failed).to.be.true;
-//     });
-//   });
-// });
+      let failed = false;
+      try {
+        await program.methods
+          .resolveBattleSimple(20)
+          .accounts({
+            winner: winnerPda,
+            loser: loserPda,
+            game: gamePda,
+            winnerToken: tokenAccounts[simpleBattle.winner],
+            loserToken: tokenAccounts[simpleBattle.loser],
+            loserAuthority: provider.wallet.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            authority: unauthorizedWallet.publicKey,
+          })
+          .signers([unauthorizedWallet])
+          .rpc();
+      } catch (err: any) {
+        console.log("Unauthorized attempt blocked:", err.message);
+        failed = true;
+      }
+      expect(failed).to.be.true;
+    });
+  });
+});
