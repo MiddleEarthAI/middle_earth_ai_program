@@ -1,11 +1,11 @@
 import * as anchor from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
 import { Program, BN } from "@coral-xyz/anchor";
 import { MiddleEarthAiProgram } from "../target/types/middle_earth_ai_program";
 import { expect } from "chai";
 
 describe("Movement Tests", () => {
-  // 1) Set up the Anchor provider + program.
+  // 1) Set up the provider + program.
   const provider = anchor.AnchorProvider.local();
   anchor.setProvider(provider);
   const program = anchor.workspace.MiddleEarthAiProgram as Program<MiddleEarthAiProgram>;
@@ -14,33 +14,26 @@ describe("Movement Tests", () => {
   const gameId = new BN(1234);
   const bump = 99; // example bump; must match your on-chain seeds logic
 
-  // 3) We’ll store the PDAs & agent ID.
+  // 3) We'll store the PDAs & agent ID.
   let gamePda: PublicKey;
   const agentId = 42; // Single agent ID for all movement tests
   let agentPda: PublicKey;
 
+  // We'll also create an unauthorized wallet for testing
+  const unauthorizedWallet = Keypair.generate();
+
   before("Initialize game + register agent", async () => {
-    //
     // A) Derive the Game PDA
-    //
     [gamePda] = await PublicKey.findProgramAddress(
       [Buffer.from("game"), gameId.toBuffer("le", 4)],
       program.programId
     );
     console.log("Derived gamePda:", gamePda.toBase58());
 
-    //
-    // B) Call initializeGame with consistent seeds
-    //
-    // Make sure your on-chain code does:
-    //   #[account( init, seeds=[b"game", &game_id.to_le_bytes()], bump, ... )]
-    // in the InitializeGame struct.
-    //
-    // If the game is already init, you can remove the try/catch or do `anchor clean`.
-    //
+    // B) Initialize the game.
     try {
       await program.methods
-        .initializeGame(gameId, new BN(bump)) // gameId + bump
+        .initializeGame(gameId, new BN(bump))
         .accounts({
           game: gamePda,
           authority: provider.wallet.publicKey,
@@ -52,23 +45,18 @@ describe("Movement Tests", () => {
       console.log("Game initialization skipped or already exists:", err.message);
     }
 
-    //
-    // C) Derive the Agent PDA with seeds matching your on-chain logic:
-    //   #[account( init, seeds = [b"agent", game.key().as_ref(), &[agent_id]], bump, ... )]
-    //
+    // C) Derive the Agent PDA matching on-chain seeds:
     [agentPda] = await PublicKey.findProgramAddress(
       [
         Buffer.from("agent"),
-        gamePda.toBuffer(), // Must match `game.key().as_ref()`
+        gamePda.toBuffer(), // must match `game.key().as_ref()`
         Buffer.from([agentId]),
       ],
       program.programId
     );
     console.log("Derived agentPda:", agentPda.toBase58());
 
-    //
-    // D) Register the agent with the same ID + seeds
-    //
+    // D) Register the agent using the proper authority (the provider's wallet).
     try {
       await program.methods
         .registerAgent(agentId, 0, 0, "MovementTestAgent")
@@ -90,10 +78,10 @@ describe("Movement Tests", () => {
       const newX = 10;
       const newY = 5;
 
-      // 1) Fetch the agent state before moving
+      // Fetch agent state before moving.
       const initialAgent = await program.account.agent.fetch(agentPda);
 
-      // 2) Move the agent
+      // Call moveAgent with the correct authority.
       const tx = await program.methods
         .moveAgent(newX, newY, { plain: {} })
         .accounts({
@@ -104,7 +92,7 @@ describe("Movement Tests", () => {
         .rpc();
       console.log("Move agent (plain) tx:", tx);
 
-      // 3) Verify agent state updated
+      // Verify that the agent state is updated.
       const updatedAgent = await program.account.agent.fetch(agentPda);
       expect(updatedAgent.x).to.equal(newX);
       expect(updatedAgent.y).to.equal(newY);
@@ -128,8 +116,6 @@ describe("Movement Tests", () => {
       console.log("Move agent (river) tx:", tx);
 
       const updatedAgent = await program.account.agent.fetch(agentPda);
-      // Example: if your code adds (7200 - 300) = 6900 secs
-      // just verify nextMoveTime is above old nextMoveTime
       expect(updatedAgent.nextMoveTime.toNumber()).to.be.greaterThan(initialAgent.nextMoveTime.toNumber());
       console.log("River terrain cooldown success.");
     });
@@ -150,11 +136,29 @@ describe("Movement Tests", () => {
       console.log("Move agent (mountain) tx:", tx);
 
       const updatedAgent = await program.account.agent.fetch(agentPda);
-      // Example: if your code adds (10800 - 600) = 10200 secs
       expect(updatedAgent.nextMoveTime.toNumber()).to.be.greaterThan(initialAgent.nextMoveTime.toNumber());
       console.log("Mountain terrain cooldown success.");
     });
 
-
+    it("Reverts if an unauthorized account calls moveAgent", async () => {
+      const newX = 20;
+      const newY = 20;
+      let failed = false;
+      try {
+        await program.methods
+          .moveAgent(newX, newY, { plain: {} })
+          .accounts({
+            agent: agentPda,
+            game: gamePda,
+            authority: unauthorizedWallet.publicKey, // Using unauthorized wallet
+          })
+          .signers([unauthorizedWallet])
+          .rpc();
+      } catch (err: any) {
+        console.log("Unauthorized moveAgent reverted as expected:", err.message);
+        failed = true;
+      }
+      expect(failed).to.be.true;
+    });
   });
 });

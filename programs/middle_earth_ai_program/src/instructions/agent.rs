@@ -5,7 +5,6 @@ use crate::error::GameError;
 /// Combines the functionalities of `initialize_agent` and `add_agent`. 
 /// This function initializes an agent account and registers it in the global agent list.
 /// 
-/// **Access Control:** Only the game authority (stored in the Game account) may call this function.
 pub fn register_agent(
     ctx: Context<RegisterAgent>,
     agent_id: u8,
@@ -71,7 +70,6 @@ pub fn register_agent(
 
 /// Marks an agent as dead by setting its `is_alive` field to false.
 /// 
-/// **Access Control:** Only the agent's authority (or game authority) may call this function.
 pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
     let agent_account = &mut ctx.accounts.agent;
 

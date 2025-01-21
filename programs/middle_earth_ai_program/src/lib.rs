@@ -24,6 +24,10 @@ pub mod middle_earth_ai_program {
         game::initialize_game(ctx, game_id, bump)
     }
 
+    pub fn end_game(ctx: Context<EndGame>) -> Result<()> {
+        game::end_game(ctx)
+    }
+
     /// Combined function for agent registration.
     /// This instruction both initializes an Agent account and registers it in the game’s agent list.
     pub fn register_agent(

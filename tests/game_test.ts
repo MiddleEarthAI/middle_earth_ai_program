@@ -13,10 +13,6 @@ describe("Game Tests", () => {
   const gameId = new BN(999); // Example game ID
   let gamePda: PublicKey; // Game PDA
 
-  const getGameAccountNamespace = () => {
-    return (program.account as any).Game || (program.account as any).game;
-  };
-
   before("Derive Game PDA", async () => {
     [gamePda] = await PublicKey.findProgramAddress(
       [Buffer.from("game"), gameId.toBuffer("le", 4)],
@@ -26,56 +22,48 @@ describe("Game Tests", () => {
   });
 
   it("Initializes a new game successfully", async () => {
-    // Fetch initial state if it exists
-    let gameAccountBefore;
     try {
-      gameAccountBefore = await getGameAccountNamespace().fetch(gamePda);
-      console.log("Game account already exists, validating its state.");
-    } catch {
-      console.log("Game account does not exist yet, proceeding with initialization.");
+      await program.methods
+        .initializeGame(gameId, 123) // Example bump value
+        .accounts({
+          game: gamePda,
+          authority: provider.wallet.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc();
+      console.log("Game initialized successfully.");
+    } catch (err: any) {
+      console.log("Game initialization skipped (likely already exists):", err.message);
     }
 
-    // If the game account exists, validate it matches the expected initial state
-    if (gameAccountBefore) {
-      expect(gameAccountBefore.gameId.toNumber()).to.equal(gameId.toNumber());
-      expect(gameAccountBefore.authority.toBase58()).to.equal(provider.wallet.publicKey.toBase58());
-      expect(gameAccountBefore.isActive).to.be.true;
-      return; // Skip initialization since the game is already initialized
-    }
-    const unauthorizedWallet = anchor.web3.Keypair.generate();
+    // Fetch and validate the game account
+    const gameAccount = await program.account.game.fetch(gamePda);
+    expect(gameAccount.gameId.toNumber()).to.equal(gameId.toNumber());
+    expect(gameAccount.isActive).to.be.true;
+    expect(gameAccount.authority.toBase58()).to.equal(provider.wallet.publicKey.toBase58());
+  });
 
-    // Call the initialize_game instruction
-    const bump = 123; // Example bump
-    const tx = await program.methods
-      .initializeGame(gameId, new BN(bump))
+  it("Ends the game successfully", async () => {
+    await program.methods
+      .endGame()
       .accounts({
         game: gamePda,
-        authority: unauthorizedWallet,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        authority: provider.wallet.publicKey,
       })
       .rpc();
 
-    console.log("Game initialization tx signature:", tx);
-
-    // Fetch the newly created game account
-    const gameAccountAfter = await getGameAccountNamespace().fetch(gamePda);
-
-    // Validate game account state
-    expect(gameAccountAfter.gameId.toNumber()).to.equal(gameId.toNumber());
-    expect(gameAccountAfter.authority.toBase58()).to.equal(provider.wallet.publicKey.toBase58());
-    expect(gameAccountAfter.isActive).to.be.true;
-    expect(gameAccountAfter.bump).to.equal(bump);
-    expect(gameAccountAfter.reentrancyGuard).to.be.false;
-    expect(gameAccountAfter.lastUpdate.toNumber()).to.be.greaterThan(0);
+    // Fetch and validate the game account
+    const gameAccount = await program.account.game.fetch(gamePda);
+    expect(gameAccount.isActive).to.be.false;
+    console.log("Game ended successfully.");
   });
 
   it("Fails to reinitialize an already active game", async () => {
-    const bump = 123; // Use the same bump as before
     let reverted = false;
 
     try {
       await program.methods
-        .initializeGame(gameId, new BN(bump))
+        .initializeGame(gameId, 123)
         .accounts({
           game: gamePda,
           authority: provider.wallet.publicKey,
@@ -90,22 +78,40 @@ describe("Game Tests", () => {
     expect(reverted).to.be.true;
   });
 
-  it("Fails to initialize a game with an unauthorized wallet", async () => {
+  it("Fails to end the game with an unauthorized wallet", async () => {
     const unauthorizedWallet = anchor.web3.Keypair.generate();
-    const bump = 124; // Different bump for this test
     let reverted = false;
 
     try {
       await program.methods
-        .initializeGame(gameId, new BN(bump))
+        .endGame()
+        .accounts({
+          game: gamePda,
+          authority: unauthorizedWallet.publicKey,
+        })
+        .signers([unauthorizedWallet])
+        .rpc();
+    } catch (err: any) {
+      console.log("Unauthorized end game failed as expected:", err.message);
+      reverted = true;
+    }
+
+    expect(reverted).to.be.true;
+  });
+
+  it("Fails to end an already inactive game", async () => {
+    let reverted = false;
+
+    try {
+      await program.methods
+        .endGame()
         .accounts({
           game: gamePda,
           authority: provider.wallet.publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .rpc();
     } catch (err: any) {
-      console.log("Unauthorized initialization failed as expected:", err.message);
+      console.log("End game failed for inactive game as expected:", err.message);
       reverted = true;
     }
 

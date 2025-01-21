@@ -47,4 +47,7 @@ pub enum GameError {
    
     #[msg("You must wait until cooldown ends.")]
     CooldownNotOver,
+       
+    #[msg("Game is Inactive")]
+    GameNotActive,
 }
