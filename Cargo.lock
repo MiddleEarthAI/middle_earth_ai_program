@@ -1309,6 +1309,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "lazy_static",
  "spl-token 3.5.0",
 ]
 
