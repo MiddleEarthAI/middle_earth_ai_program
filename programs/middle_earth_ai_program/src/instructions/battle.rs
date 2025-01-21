@@ -46,76 +46,65 @@ pub fn resolve_battle_agent_vs_alliance(
         .ok_or(GameError::InsufficientFunds)?;
 
     if agent_is_winner {
-        // Single agent is winner, alliance is loser
-        // We take `percent_lost` from alliance_balance, distributing it to single agent.
-
+        // Single agent is winner, alliance is loser.
+        // Compute the total lost amount.
         let total_lost = alliance_balance
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
-
-        // For simplicity, we deduct from alliance_leader and alliance_partner in proportion
-        // to their share in alliance_balance
-        let leader_deduction = if alliance_balance > 0 {
-            total_lost
-                .checked_mul(alliance_leader_data.amount)
-                .ok_or(GameError::InsufficientFunds)?
-                .checked_div(alliance_balance)
-                .ok_or(GameError::InsufficientFunds)?
+        
+        // Use u128 math to avoid overflow.
+        let leader_deduction: u64 = if alliance_balance > 0 {
+            (((total_lost as u128) * (alliance_leader_data.amount as u128))
+                / (alliance_balance as u128)) as u64
         } else { 0 };
         let partner_deduction = total_lost.checked_sub(leader_deduction).ok_or(GameError::InsufficientFunds)?;
 
         // Transfer from alliance_leader_token -> single_agent_token
         if leader_deduction > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.alliance_leader_token.to_account_info(),
                 to: ctx.accounts.single_agent_token.to_account_info(),
                 authority: ctx.accounts.alliance_leader_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), leader_deduction)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_deduction)?;
         }
         // Transfer from alliance_partner_token -> single_agent_token
         if partner_deduction > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.alliance_partner_token.to_account_info(),
                 to: ctx.accounts.single_agent_token.to_account_info(),
                 authority: ctx.accounts.alliance_partner_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), partner_deduction)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_deduction)?;
         }
-
     } else {
         // Alliance is winner, single agent is loser.
-        // The single agent loses `percent_lost` of single_token_data.amount
-        // Then we distribute that lost amount 50/50 to alliance_leader and alliance_partner
-
+        // Compute the lost amount from the single agent's balance.
         let single_balance = single_token_data.amount;
         let lost_amount = single_balance
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
 
-        // We do a single transfer from single_agent_token -> alliance_leader_token
-        // and from single_agent_token -> alliance_partner_token
-        // Splitting the lost_amount in half for each (or by ratio if you prefer).
         let half_loss = lost_amount.checked_div(2).ok_or(GameError::InsufficientFunds)?;
         let remainder = lost_amount.checked_sub(half_loss).ok_or(GameError::InsufficientFunds)?;
 
-        // Transfer half to alliance leader
+        // Transfer half to alliance leader.
         if half_loss > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.single_agent_token.to_account_info(),
                 to: ctx.accounts.alliance_leader_token.to_account_info(),
                 authority: ctx.accounts.single_agent_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), half_loss)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), half_loss)?;
         }
-        // Transfer half (or remainder) to alliance partner
+        // Transfer half (or remainder) to alliance partner.
         if remainder > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.single_agent_token.to_account_info(),
                 to: ctx.accounts.alliance_partner_token.to_account_info(),
                 authority: ctx.accounts.single_agent_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), remainder)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), remainder)?;
         }
     }
 
@@ -141,14 +130,14 @@ pub fn resolve_battle_alliance_vs_alliance(
     let leaderB = &mut ctx.accounts.leader_b;
     let partnerB = &mut ctx.accounts.partner_b;
 
-    // Update last_attack
+    // Update last_attack fields.
     leaderA.validate_attack(now)?;
     leaderA.last_attack = now;
     partnerA.last_attack = now;
     leaderB.last_attack = now;
     partnerB.last_attack = now;
 
-    // Unpack token accounts
+    // Unpack token accounts.
     let leaderA_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_a_token.data.borrow())?;
     let partnerA_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_a_token.data.borrow())?;
     let leaderB_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_b_token.data.borrow())?;
@@ -157,84 +146,61 @@ pub fn resolve_battle_alliance_vs_alliance(
     let alliance_a_balance = leaderA_data.amount.checked_add(partnerA_data.amount).ok_or(GameError::InsufficientFunds)?;
     let alliance_b_balance = leaderB_data.amount.checked_add(partnerB_data.amount).ok_or(GameError::InsufficientFunds)?;
 
-    // Decide who is losing side
     if alliance_a_wins {
-        // Alliance B is losing side
+        // Alliance B loses.
         let total_lost = alliance_b_balance
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
 
-        // Deduct from B's leader & partner proportionally
-        let leader_b_deduction = if alliance_b_balance > 0 {
-            total_lost
-                .checked_mul(leaderB_data.amount)
-                .ok_or(GameError::InsufficientFunds)?
-                .checked_div(alliance_b_balance)
-                .ok_or(GameError::InsufficientFunds)?
+        let leader_b_deduction: u64 = if alliance_b_balance > 0 {
+            (((total_lost as u128) * (leaderB_data.amount as u128))
+                / (alliance_b_balance as u128)) as u64
         } else { 0 };
         let partner_b_deduction = total_lost.checked_sub(leader_b_deduction).ok_or(GameError::InsufficientFunds)?;
 
-        // Distribute total_lost proportionally to alliance A's token accounts?
-        // Or split half to leader A, half to partner A? Let's do half to each for simplicity:
-        let half_gain = total_lost.checked_div(2).ok_or(GameError::InsufficientFunds)?;
-        let remainder = total_lost.checked_sub(half_gain).ok_or(GameError::InsufficientFunds)?;
-
-        // Do the deduction transfers:
         if leader_b_deduction > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.leader_b_token.to_account_info(),
                 to: ctx.accounts.leader_a_token.to_account_info(),
                 authority: ctx.accounts.leader_b_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), leader_b_deduction)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_b_deduction)?;
         }
         if partner_b_deduction > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.partner_b_token.to_account_info(),
                 to: ctx.accounts.partner_a_token.to_account_info(),
                 authority: ctx.accounts.partner_b_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), partner_b_deduction)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_b_deduction)?;
         }
-
-        // We want to ensure that half_gain actually ends up in leaderA & half in partnerA,
-        // but we've already done "deduction from B". If you want "all to leaderA" or a ratio,
-        // you'd do a single place to store it. For simplicity here, we have them transferring 
-        // directly from B->A. 
-        // The above code lumps all B->B' transfers. If you want exact control, you'd do them individually.
-
     } else {
-        // Alliance A is losing side
+        // Alliance A loses.
         let total_lost = alliance_a_balance
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
 
-        // proportionally from A -> B
-        let leader_a_deduction = if alliance_a_balance > 0 {
-            total_lost
-                .checked_mul(leaderA_data.amount)
-                .ok_or(GameError::InsufficientFunds)?
-                .checked_div(alliance_a_balance)
-                .ok_or(GameError::InsufficientFunds)?
+        let leader_a_deduction: u64 = if alliance_a_balance > 0 {
+            (((total_lost as u128) * (leaderA_data.amount as u128))
+                / (alliance_a_balance as u128)) as u64
         } else { 0 };
         let partner_a_deduction = total_lost.checked_sub(leader_a_deduction).ok_or(GameError::InsufficientFunds)?;
 
-        // Transfer from A->B in the same logic
         if leader_a_deduction > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.leader_a_token.to_account_info(),
                 to: ctx.accounts.leader_b_token.to_account_info(),
                 authority: ctx.accounts.leader_a_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), leader_a_deduction)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_a_deduction)?;
         }
         if partner_a_deduction > 0 {
-            let cpi = Transfer {
+            let cpi_accounts = Transfer {
                 from: ctx.accounts.partner_a_token.to_account_info(),
                 to: ctx.accounts.partner_b_token.to_account_info(),
                 authority: ctx.accounts.partner_a_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi), partner_a_deduction)?;
+            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_a_deduction)?;
         }
     }
 
@@ -281,6 +247,7 @@ pub fn resolve_battle_simple(
     });
     Ok(())
 }
+
 #[derive(Accounts)]
 pub struct ResolveBattleAgentAlliance<'info> {
     #[account(mut, has_one = game)]
@@ -316,8 +283,6 @@ pub struct ResolveBattleAgentAlliance<'info> {
     pub authority: Signer<'info>,
 }
 
-
-/// Accounts context for alliance vs alliance.
 #[derive(Accounts)]
 pub struct ResolveBattleAlliances<'info> {
     #[account(mut, has_one = game)]
