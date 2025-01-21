@@ -10,9 +10,11 @@ pub fn move_agent(
     terrain: TerrainType,
 ) -> Result<()> {
     let agent = &mut ctx.accounts.agent;
-    let _game = &ctx.accounts.game; 
+    let _game = &ctx.accounts.game;
     let now = Clock::get()?.unix_timestamp;
 
+    // Explicit check: Only the agent's authority can call this instruction.
+    require!(agent.authority == ctx.accounts.authority.key(), GameError::Unauthorized);
 
     let old_x = agent.x;
     let old_y = agent.y;

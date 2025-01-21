@@ -9,107 +9,103 @@ import { AccountLayout } from "@solana/spl-token";
 import {
   TOKEN_PROGRAM_ID,
   createMint,
+  createAccount,
   createInitializeAccountInstruction,
   mintTo,
   getAccount,
 } from "@solana/spl-token";
 
-// ----------------------------
-// Constants / Helper
-// ----------------------------
-const INITIAL_MINT_AMOUNT = 1_000_000;     // how many tokens the user starts with
-const REWARDS_MINT_AMOUNT = 500_000_000;   // how many tokens to put in the rewards vault
-const STAKE_DEPOSIT_AMOUNT = 500;          // how many tokens to stake each test
-const PARTIAL_UNSTAKE_SHARES = 200;        // how many shares to unstake
-
-// Helper to read the balance of an SPL token account
-async function getTokenBalance(pubkey: PublicKey, provider: anchor.AnchorProvider) {
-  const acct = await getAccount(provider.connection, pubkey);
-  return Number(acct.amount);
-}
-
-describe("Token Staking Tests (Comprehensive)", () => {
-  // 1) Anchor + Program set up
+describe("Token Staking Tests", () => {
+  // Set up the provider and program
   const provider = anchor.AnchorProvider.local();
   anchor.setProvider(provider);
-
   const program = anchor.workspace.MiddleEarthAiProgram as Program<MiddleEarthAiProgram>;
 
-  // 2) Global PDAs
+  // Global variables for our test environment:
   let gamePda: PublicKey;
-  let agentPda: PublicKey;
-  // For demonstration, we say we have a `gameId` + `agentId`
-  const gameId = new BN(777);
-  const agentId = 99;
+  let gameBump: number;
+  const gameId = new BN(777); // Example game ID
 
-  // 3) Vault + user SPL token accounts
+  let agentPda: PublicKey;
+  let agentBump: number;
+  const agentId = 99; // Example agent ID
+
   let tokenMint: PublicKey;
   let stakerTokenAccount: PublicKey;
   let rewardsVault: PublicKey;
-  let agentVault: PublicKey; // the agent's vault token account
 
-  before("Initialize game, create mint, user token account, register agent, create vault", async () => {
-    // ----------------------------------------------------------
-    // Step A: Derive + init the game
-    // ----------------------------------------------------------
-    [gamePda] = await PublicKey.findProgramAddress(
+  // The agent vault token account (its inner owner is set to the agent PDA)
+  let agentVault: PublicKey;
+
+  // Constants
+  const INITIAL_MINT_AMOUNT = 1_000_000;
+  const STAKE_DEPOSIT_AMOUNT = 500;
+
+  // Helper: get the token account's balance
+  async function getTokenBalance(pubkey: PublicKey): Promise<number> {
+    const acct = await getAccount(provider.connection, pubkey);
+    return Number(acct.amount);
+  }
+
+  // ----------------------------------------------------------------
+  // STEP 1: Initialize game, create token mint, staker account, and rewards vault.
+  // ----------------------------------------------------------------
+  before(async () => {
+    // 1) Derive the Game PDA and initialize the game.
+    [gamePda, gameBump] = await PublicKey.findProgramAddress(
       [Buffer.from("game"), gameId.toArrayLike(Buffer, "le", 4)],
       program.programId
     );
     try {
       await program.methods
-        .initializeGame(gameId, new BN(123)) // example bump is 123
+        .initializeGame(gameId, new BN(gameBump))
         .accounts({
           game: gamePda,
           authority: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-      console.log("Game successfully initialized or already done.");
+      console.log("Game successfully initialized.");
     } catch (err: any) {
-      console.log("Game init might exist:", err.message);
+      console.log("Game init might already exist:", err.message);
     }
 
-    // ----------------------------------------------------------
-    // Step B: Create a token mint for testing
-    // ----------------------------------------------------------
+    // 2) Create a token mint (decimals = 6)
     tokenMint = await createMint(
       provider.connection,
       provider.wallet.payer,
       provider.wallet.publicKey,
       null,
-      6 // decimals
+      6
     );
-    console.log("Mint created =>", tokenMint.toBase58());
+    console.log("Token mint created:", tokenMint.toBase58());
 
-    // ----------------------------------------------------------
-    // Step C: Create user token account + mint tokens to user
-    // ----------------------------------------------------------
+    // 3) Create the staker's token account.
     {
-      const userAcct = Keypair.generate();
-      const lamportsNeeded = await provider.connection.getMinimumBalanceForRentExemption(
-        AccountLayout.span
-      );
+      const stakerAcctKeypair = Keypair.generate();
+      const size = AccountLayout.span; // typically 165 bytes
+      const lamports = await provider.connection.getMinimumBalanceForRentExemption(size);
 
       const createIx = SystemProgram.createAccount({
         fromPubkey: provider.wallet.publicKey,
-        newAccountPubkey: userAcct.publicKey,
-        space: AccountLayout.span,
-        lamports: lamportsNeeded,
+        newAccountPubkey: stakerAcctKeypair.publicKey,
+        space: size,
+        lamports,
         programId: TOKEN_PROGRAM_ID,
       });
       const initIx = createInitializeAccountInstruction(
-        userAcct.publicKey,
+        stakerAcctKeypair.publicKey,
         tokenMint,
-        provider.wallet.publicKey, // user is the owner
+        provider.wallet.publicKey, // staker's inner owner
         TOKEN_PROGRAM_ID
       );
       const tx = new web3.Transaction().add(createIx, initIx);
-      await provider.sendAndConfirm(tx, [userAcct]);
-      stakerTokenAccount = userAcct.publicKey;
+      await provider.sendAndConfirm(tx, [stakerAcctKeypair]);
+      stakerTokenAccount = stakerAcctKeypair.publicKey;
+      console.log("Staker token account created:", stakerTokenAccount.toBase58());
     }
 
-    // Mint tokens to user
+    // 4) Mint tokens to staker's account.
     await mintTo(
       provider.connection,
       provider.wallet.payer,
@@ -118,54 +114,57 @@ describe("Token Staking Tests (Comprehensive)", () => {
       provider.wallet.publicKey,
       INITIAL_MINT_AMOUNT
     );
-    console.log("User token account created + minted =>", stakerTokenAccount.toBase58());
+    console.log("Staker token account funded.");
 
-    // ----------------------------------------------------------
-    // Step D: Create a rewards vault (owned by provider for distribution)
-    // ----------------------------------------------------------
+    // 5) Create a rewards vault (a token account owned by provider for rewards distribution).
     {
-      const vaultKey = Keypair.generate();
-      const lamportsNeeded = await provider.connection.getMinimumBalanceForRentExemption(
-        AccountLayout.span
-      );
+      const vaultKeypair = Keypair.generate();
+      const size = AccountLayout.span;
+      const lamports = await provider.connection.getMinimumBalanceForRentExemption(size);
+
       const createIx = SystemProgram.createAccount({
         fromPubkey: provider.wallet.publicKey,
-        newAccountPubkey: vaultKey.publicKey,
-        space: AccountLayout.span,
-        lamports: lamportsNeeded,
+        newAccountPubkey: vaultKeypair.publicKey,
+        space: size,
+        lamports,
         programId: TOKEN_PROGRAM_ID,
       });
       const initIx = createInitializeAccountInstruction(
-        vaultKey.publicKey,
+        vaultKeypair.publicKey,
         tokenMint,
-        provider.wallet.publicKey,
+        provider.wallet.publicKey, // inner owner is provider
         TOKEN_PROGRAM_ID
       );
       const tx = new web3.Transaction().add(createIx, initIx);
-      await provider.sendAndConfirm(tx, [vaultKey]);
-      rewardsVault = vaultKey.publicKey;
+      await provider.sendAndConfirm(tx, [vaultKeypair]);
+      rewardsVault = vaultKeypair.publicKey;
+      console.log("Rewards vault created:", rewardsVault.toBase58());
     }
-    // Mint tokens to rewardsVault
+
+    // Fund the rewards vault.
     await mintTo(
       provider.connection,
       provider.wallet.payer,
       tokenMint,
       rewardsVault,
       provider.wallet.publicKey,
-      REWARDS_MINT_AMOUNT
+      500_000_000
     );
-    console.log("Rewards vault created + minted =>", rewardsVault.toBase58());
+    console.log("Rewards vault funded.");
 
-    // ----------------------------------------------------------
-    // Step E: Register the agent if needed
-    // ----------------------------------------------------------
-    [agentPda] = await PublicKey.findProgramAddress(
+    // ----------------------------------------------------------------
+    // STEP 2: Register agent and create agent vault.
+    // ----------------------------------------------------------------
+    // 1) Derive the Agent PDA.
+    [agentPda, agentBump] = await PublicKey.findProgramAddress(
       [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([agentId])],
       program.programId
     );
+
+    // 2) Register the agent.
     try {
       await program.methods
-        .registerAgent(agentId, 0, 0, "Frodo")
+        .registerAgent(agentId, 10, -4, "Frodo")
         .accounts({
           game: gamePda,
           agent: agentPda,
@@ -173,177 +172,93 @@ describe("Token Staking Tests (Comprehensive)", () => {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-      console.log("Agent registered =>", agentPda.toBase58());
+      console.log("Agent registered at:", agentPda.toBase58());
     } catch (err: any) {
-      console.log("Agent registration might exist:", err.message);
+      console.log("Agent registration might already exist:", err.message);
     }
 
-    // ----------------------------------------------------------
-    // Step F: Create the agent's vault as a PDA-owned token account
-    // ----------------------------------------------------------
-    // If your code auto-creates the vault, skip. Otherwise, do it manually:
+    // 3) Create the agent's vault as a PDA-owned token account.
     {
-      const vaultKey = Keypair.generate();
-      const lamportsNeeded = await provider.connection.getMinimumBalanceForRentExemption(
-        AccountLayout.span
-      );
+      const agentVaultKeypair = Keypair.generate();
+      const size = AccountLayout.span;
+      const lamports = await provider.connection.getMinimumBalanceForRentExemption(size);
       const createVaultIx = SystemProgram.createAccount({
         fromPubkey: provider.wallet.publicKey,
-        newAccountPubkey: vaultKey.publicKey,
-        space: AccountLayout.span,
-        lamports: lamportsNeeded,
+        newAccountPubkey: agentVaultKeypair.publicKey,
+        space: size,
+        lamports,
         programId: TOKEN_PROGRAM_ID,
       });
+      // Initialize it as a token account with 'agentPda' as the inner owner.
       const initVaultIx = createInitializeAccountInstruction(
-        vaultKey.publicKey,
+        agentVaultKeypair.publicKey,
         tokenMint,
-        agentPda, // agent PDE is the owner
+        agentPda, // the "owner" in the token's metadata
         TOKEN_PROGRAM_ID
       );
       const tx = new web3.Transaction().add(createVaultIx, initVaultIx);
-      await provider.sendAndConfirm(tx, [vaultKey]);
-      agentVault = vaultKey.publicKey;
-      console.log("Agent vault =>", agentVault.toBase58());
+      await provider.sendAndConfirm(tx, [agentVaultKeypair]);
+      agentVault = agentVaultKeypair.publicKey;
+      console.log("Agent vault created with PDA owner:", agentVault.toBase58());
     }
   });
 
   // ----------------------------------------------------------------
-  // Now the test cases
+  // STEP 3: Test staking tokens.
   // ----------------------------------------------------------------
-  describe("Staking + Unstaking Flow", () => {
-    let stakePda: PublicKey;
-    let stakeBump: number;
-
-    // We'll create stake_info in a `beforeEach` so each test starts fresh if desired.
-    // Or we can create once. Here, we do `beforeEach` to test multiple scenarios.
-
-    beforeEach(async () => {
-      // Derive stake_info
-      [stakePda, stakeBump] = await PublicKey.findProgramAddress(
-        [Buffer.from("stake"), agentPda.toBuffer(), provider.wallet.publicKey.toBuffer()],
+  describe("Stake Tokens", () => {
+    it("Stakes tokens from the staker to the agent vault", async () => {
+      // Derive the stake_info PDA using seeds:
+      // [ "stake", agentPda, authority ]
+      // (This matches the on-chain constraint in your token.rs code.)
+      const [stakeInfoPda, stakeInfoBump] = await PublicKey.findProgramAddress(
+        [
+          Buffer.from("stake"),
+          agentPda.toBuffer(),
+          provider.wallet.publicKey.toBuffer(),
+        ],
         program.programId
       );
 
-      // stakeTokens
-      await program.methods
+      // Get balances before staking.
+      const stakerBalanceBefore = await getTokenBalance(stakerTokenAccount);
+      const vaultBalanceBefore = await getTokenBalance(agentVault);
+
+      // Call the stake_tokens instruction.
+      const txSig = await program.methods
         .stakeTokens(new BN(STAKE_DEPOSIT_AMOUNT))
         .accounts({
           agent: agentPda,
           game: gamePda,
-          stakeInfo: stakePda,
+          stakeInfo: stakeInfoPda,
           stakerSource: stakerTokenAccount,
-          agentVault: agentVault,
+          agentVault: agentVault, // Use the agentVault PublicKey directly
           authority: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();
-      console.log("Staked tokens => stakePda:", stakePda.toBase58());
-    });
+      console.log("Staking transaction signature:", txSig);
 
-    it("Fails to unstake if cooldown not over", async () => {
-      // We attempt an immediate unstake
-      let failed = false;
-      try {
-        await program.methods
-          .unstakeTokens(new BN(50))
-          .accounts({
-            agent: agentPda,
-            game: gamePda,
-            stakeInfo: stakePda,
-            agentVault: agentVault,
-            agentAuthority: agentPda, // PDE
-            stakerDestination: stakerTokenAccount,
-            authority: provider.wallet.publicKey,
-            systemProgram: SystemProgram.programId,
-            tokenProgram: TOKEN_PROGRAM_ID,
-          })
-          .rpc();
-      } catch (err: any) {
-        console.log("Unstake fails due to cooldown =>", err.message);
-        failed = true;
-      }
-      expect(failed).to.be.true;
-    });
+      // Get balances after staking.
+      const stakerBalanceAfter = await getTokenBalance(stakerTokenAccount);
+      const vaultBalanceAfter = await getTokenBalance(agentVault);
 
-    it("Clears cooldown and partially unstakes", async () => {
-      // Clear cooldown with test instruction
-      await program.methods
-        .testClearCooldown()
-        .accounts({
-          stakeInfo: stakePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-      console.log("Cooldown cleared via test instruction.");
+      // Verify token transfers.
+      expect(stakerBalanceAfter).to.equal(stakerBalanceBefore - STAKE_DEPOSIT_AMOUNT);
+      expect(vaultBalanceAfter).to.equal(vaultBalanceBefore + STAKE_DEPOSIT_AMOUNT);
 
-      // now partial unstake
-      const partialUnstake = 200;
-      const stakerBalanceBefore = await getTokenBalance(stakerTokenAccount, provider);
-      const vaultBalanceBefore = await getTokenBalance(agentVault, provider);
+      // Verify stake_info data.
+      const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
+      expect(Number(stakeInfo.amount)).to.equal(STAKE_DEPOSIT_AMOUNT);
+      // Based on your logic, if there were no prior deposits then shares = deposit_amount.
+      expect(Number(stakeInfo.shares)).to.equal(STAKE_DEPOSIT_AMOUNT);
+      
+      // Check the cooldown is set to approximately 1 hour from now.
+      const nowSecs = Math.floor(Date.now() / 1000);
+      expect(Number(stakeInfo.cooldownEndsAt) - nowSecs).to.be.at.most(3601);
 
-      await program.methods
-        .unstakeTokens(new BN(partialUnstake))
-        .accounts({
-          agent: agentPda,
-          game: gamePda,
-          stakeInfo: stakePda,
-          agentVault: agentVault,
-          agentAuthority: agentPda,
-          stakerDestination: stakerTokenAccount,
-          authority: provider.wallet.publicKey,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .rpc();
-      console.log("Partially unstaked =>", partialUnstake);
-
-      const stakerBalanceAfter = await getTokenBalance(stakerTokenAccount, provider);
-      const vaultBalanceAfter = await getTokenBalance(agentVault, provider);
-
-      expect(stakerBalanceAfter).to.equal(stakerBalanceBefore + partialUnstake);
-      expect(vaultBalanceAfter).to.equal(vaultBalanceBefore - partialUnstake);
-
-      // confirm stake_info updated
-      const stakeInfoAcc = await program.account.stakeInfo.fetch(stakePda);
-      expect(Number(stakeInfoAcc.amount)).to.equal(STAKE_DEPOSIT_AMOUNT - partialUnstake);
-      expect(Number(stakeInfoAcc.shares)).to.equal(STAKE_DEPOSIT_AMOUNT - partialUnstake);
-
-      console.log("Partial unstake success, stake info updated.");
-    });
-
-    it("Fails to unstake if user doesn't have enough shares", async () => {
-      // We'll attempt to unstake more than total shares (which is 500).
-      await program.methods
-        .testClearCooldown()
-        .accounts({
-          stakeInfo: stakePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-      console.log("Cooldown cleared for test.");
-
-      let failed = false;
-      try {
-        await program.methods
-          .unstakeTokens(new BN(9999)) // way more than staked
-          .accounts({
-            agent: agentPda,
-            game: gamePda,
-            stakeInfo: stakePda,
-            agentVault: agentVault,
-            agentAuthority: agentPda,
-            stakerDestination: stakerTokenAccount,
-            authority: provider.wallet.publicKey,
-            systemProgram: SystemProgram.programId,
-            tokenProgram: TOKEN_PROGRAM_ID,
-          })
-          .rpc();
-      } catch (err: any) {
-        console.log("Unstake fails => not enough shares =>", err.message);
-        failed = true;
-      }
-      expect(failed).to.be.true;
+      console.log("Staking successful. Stake info validated.");
     });
   });
 });

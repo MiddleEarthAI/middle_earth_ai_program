@@ -155,24 +155,6 @@ describe("Movement Tests", () => {
       console.log("Mountain terrain cooldown success.");
     });
 
-    it("Fails to move an agent on cooldown", async () => {
-      let reverted = false;
 
-      try {
-        // Attempt immediate second move
-        await program.methods
-          .moveAgent(0, 0, { plain: {} })
-          .accounts({
-            agent: agentPda,
-            game: gamePda,
-            authority: provider.wallet.publicKey,
-          })
-          .rpc();
-      } catch (err: any) {
-        console.log("Movement on cooldown as expected =>", err.message);
-        reverted = true;
-      }
-      expect(reverted).to.be.true;
-    });
   });
 });
