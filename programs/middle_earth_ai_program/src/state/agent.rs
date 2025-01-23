@@ -44,7 +44,7 @@ pub struct Agent {
     pub token_balance: u64,            // Deprecated if querying real-time vault balance
     pub staked_balance: u64,           // Total tokens staked
     pub last_reward_claim: i64,        // Last reward claim timestamp
-    pub total_shares: u64,            // Total shares representing staking pool ownership
+    pub total_shares: u128,            // Total shares representing staking pool ownership
     pub last_attack: i64,
     pub last_ignore: i64,
     pub last_alliance: i64,

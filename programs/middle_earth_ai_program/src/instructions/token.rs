@@ -55,8 +55,6 @@ pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> R
     stake_info.agent = ctx.accounts.agent.key();
     stake_info.staker = ctx.accounts.authority.key();
     stake_info.last_reward_timestamp = 0;
-    // If you have a bump in StakeInfo, either remove it or set it to 0 or any default:
-    // stake_info.bump = 0;
 
     // Transfer tokens from staker -> agent vault
     let cpi_ctx = CpiContext::new(
@@ -72,18 +70,18 @@ pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> R
     // Read agent vault balance BEFORE deposit
     let data = ctx.accounts.agent_vault.data.borrow();
     let mut slice: &[u8] = &data;
-    let vault_info = anchor_spl::token::TokenAccount::try_deserialize(&mut slice)?;
+    let vault_info = TokenAccount::try_deserialize(&mut slice)?;
     let vault_balance_before = vault_info.amount;
 
-    let total_shares = ctx.accounts.agent.total_shares; // agent.total_shares is u128
-    // Calculate new shares to mint
-    let shares_to_mint: u64 = if vault_balance_before == deposit_amount || total_shares == 0 {
-        deposit_amount
+    let total_shares = ctx.accounts.agent.total_shares; // u128
+    // Calculate new shares to mint as u128
+    let shares_to_mint: u128 = if vault_balance_before == deposit_amount || total_shares == 0 {
+        deposit_amount as u128
     } else {
-        deposit_amount
-            .checked_mul(total_shares as u64)
+        (deposit_amount as u128)
+            .checked_mul(total_shares)
             .ok_or(GameError::NotEnoughTokens)?
-            .checked_div(vault_balance_before)
+            .checked_div(vault_balance_before as u128)
             .ok_or(GameError::NotEnoughTokens)?
     };
 
@@ -92,7 +90,7 @@ pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> R
         .accounts
         .agent
         .total_shares
-        .checked_add((shares_to_mint as u128).try_into().unwrap())
+        .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
 
     // Update stake_info
@@ -131,17 +129,17 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
     // Read vault balance
     let data = ctx.accounts.agent_vault.data.borrow();
     let mut slice: &[u8] = &data;
-    let vault_info = anchor_spl::token::TokenAccount::try_deserialize(&mut slice)?;
+    let vault_info = TokenAccount::try_deserialize(&mut slice)?;
     let vault_balance_before = vault_info.amount;
 
     let total_shares = ctx.accounts.agent.total_shares; // u128
-    let shares_to_mint: u64 = if vault_balance_before == deposit_amount || total_shares == 0 {
-        deposit_amount
+    let shares_to_mint: u128 = if vault_balance_before == deposit_amount || total_shares == 0 {
+        deposit_amount as u128
     } else {
-        deposit_amount
-            .checked_mul(total_shares as u64)
+        (deposit_amount as u128)
+            .checked_mul(total_shares)
             .ok_or(GameError::NotEnoughTokens)?
-            .checked_div(vault_balance_before)
+            .checked_div(vault_balance_before as u128)
             .ok_or(GameError::NotEnoughTokens)?
     };
 
@@ -150,7 +148,7 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
         .accounts
         .agent
         .total_shares
-        .checked_add((shares_to_mint as u128).try_into().unwrap())
+        .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
 
     // Update stake_info
@@ -179,9 +177,8 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
 
     require!(stake_info.is_initialized, GameError::NotEnoughTokens);
     require!(shares_to_redeem > 0, GameError::InvalidAmount);
-
     require!(
-        u128::from(stake_info.shares) >= u128::from(shares_to_redeem),
+        stake_info.shares >= shares_to_redeem as u128,
         GameError::NotEnoughTokens
     );
 
@@ -191,25 +188,29 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         GameError::CooldownNotOver
     );
 
-    let data = ctx.accounts.agent_vault.data.borrow();
-    let mut slice: &[u8] = &data;
-    let vault_info = anchor_spl::token::TokenAccount::try_deserialize(&mut slice)?;
-    let vault_balance = vault_info.amount; // u64
+    // **Error Correction Starts Here**
+    // Fixing E0716: Temporary value dropped while borrowed
+    let agent_vault_info = ctx.accounts.agent_vault.to_account_info();
+    let vault_info = agent_vault_info.try_borrow_data()?;
+    let mut slice: &[u8] = &vault_info;
+    let vault_account = TokenAccount::try_deserialize(&mut slice)?;
+
+    let vault_balance = vault_account.amount;
     let total_shares = ctx.accounts.agent.total_shares; // u128
 
-    // Proportional withdrawal = (shares_to_redeem / total_shares) * vault_balance
+    // Calculate the withdraw amount proportionally
     let withdraw_amount = u128::from(shares_to_redeem)
         .checked_mul(u128::from(vault_balance))
         .ok_or(GameError::NotEnoughTokens)?
-        .checked_div(total_shares.into())
+        .checked_div(total_shares)
         .ok_or(GameError::NotEnoughTokens)?;
 
-    // Decrease agent total_shares
+    // Update agent's total_shares
     ctx.accounts.agent.total_shares = ctx
         .accounts
         .agent
         .total_shares
-        .checked_sub(u64::from(shares_to_redeem))
+        .checked_sub(u128::from(shares_to_redeem))
         .ok_or(GameError::NotEnoughTokens)?;
 
     // Update stake_info
@@ -219,10 +220,10 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         .ok_or(GameError::NotEnoughTokens)?;
     stake_info.shares = stake_info
         .shares
-        .checked_sub(shares_to_redeem)
+        .checked_sub(shares_to_redeem as u128)
         .ok_or(GameError::NotEnoughTokens)?;
 
-    // Remove from global total stake
+    // Update global total stake
     remove_stake_from_game(
         &mut ctx.accounts.game,
         ctx.accounts.authority.key(),
@@ -235,15 +236,28 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         to: ctx.accounts.staker_destination.to_account_info(),
         authority: ctx.accounts.agent_authority.clone(),
     };
+
+    // **Error Correction for Signer Seeds Starts Here**
+    // Fixing E0716: Temporary value dropped while borrowed
+    let agent_authority_bump = ctx.bumps.agent_authority;
+
+    // Bind the temporary value to a variable to extend its lifetime
     let agent_key = ctx.accounts.agent.key();
-    let seeds = &[
-        b"agent_vault",
+    let agent_authority_seeds: &[&[u8]] = &[
+        b"agent_authority",
         agent_key.as_ref(),
-        &[ctx.accounts.agent.vault_bump],
+        &[agent_authority_bump],
     ];
-    let signer = &[&seeds[..]];
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+
+    // Define signer as &[&[&[u8]]]
+    let signer: &[&[&[u8]]] = &[agent_authority_seeds];
+
+    let cpi_ctx = CpiContext::new_with_signer(
+        ctx.accounts.token_program.to_account_info(),
+        cpi_accounts,
+        signer, // Pass the correctly typed signer variable
+    );
+
     token::transfer(cpi_ctx, withdraw_amount as u64)?;
 
     Ok(())
@@ -391,14 +405,12 @@ pub struct UnstakeTokens<'info> {
     pub stake_info: Account<'info, StakeInfo>,
 
     /// CHECK: The agent's vault token account. 
-    /// Owned by the SPL token program, validated in the instruction.
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
-    /// CHECK: This is the PDA that signs on behalf of the vault. 
-    /// We verify it matches the seeds of the agent's vault.
-    #[account(mut)]
-    pub agent_authority: AccountInfo<'info>,
+    /// CHECK: The PDA that signs on behalf of the vault. 
+    #[account(seeds = [b"agent_authority", agent.key().as_ref()], bump)]
+    pub agent_authority: AccountInfo<'info>, // Removed `mut`
 
     /// CHECK: The staker's token account (destination).
     #[account(mut)]

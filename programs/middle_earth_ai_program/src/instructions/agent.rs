@@ -73,8 +73,7 @@ pub fn register_agent(
 pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
     let agent_account = &mut ctx.accounts.agent;
 
-    // Ensure that only the designated authority can kill the agent.
-    // Here we check that the signer is the authority stored on the agent.
+
     require!(ctx.accounts.authority.key() == agent_account.authority, GameError::Unauthorized);
 
     // Mark the agent as dead.

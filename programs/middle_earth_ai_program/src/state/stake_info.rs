@@ -10,7 +10,7 @@ pub struct StakeInfo {
     /// The amount of tokens the user has deposited.
     pub amount: u64,
     /// The number of shares the user holds.
-    pub shares: u64,
+    pub shares: u128,
     /// The last time (Unix timestamp) this staker claimed rewards.
     pub last_reward_timestamp: i64,
     /// Bump value for the PDA.
