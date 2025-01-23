@@ -309,6 +309,7 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
 // -----------------------------------
 // ACCOUNTS STRUCTS
 // -----------------------------------
+
 #[derive(Accounts)]
 pub struct InitializeStake<'info> {
     /// The agent this stake will be associated with
@@ -328,11 +329,13 @@ pub struct InitializeStake<'info> {
     )]
     pub stake_info: Account<'info, StakeInfo>,
 
-    /// The staker's token account (source)
+    /// CHECK: This is the staker's token account. 
+    /// It's safe because we manually verify it's owned by the SPL token program.
     #[account(mut)]
     pub staker_source: AccountInfo<'info>,
 
-    /// The agent's vault (destination for tokens)
+    /// CHECK: This is the agent's vault token account. 
+    /// Also safe because we ensure it's owned by the SPL token program.
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
@@ -355,12 +358,17 @@ pub struct StakeTokens<'info> {
     #[account(
         mut,
         seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
-        bump // no reference to stake_info.bump needed if we don't store it
+        bump
     )]
     pub stake_info: Account<'info, StakeInfo>,
 
+    /// CHECK: This is the staker's token account. 
+    /// We verify it's owned by the SPL token program to ensure it's a valid token account.
     #[account(mut)]
     pub staker_source: AccountInfo<'info>,
+
+    /// CHECK: This is the agent's vault token account. 
+    /// We verify it's owned by the SPL token program.
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
@@ -382,12 +390,17 @@ pub struct UnstakeTokens<'info> {
     #[account(mut, seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()], bump)]
     pub stake_info: Account<'info, StakeInfo>,
 
+    /// CHECK: The agent's vault token account. 
+    /// Owned by the SPL token program, validated in the instruction.
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
+    /// CHECK: This is the PDA that signs on behalf of the vault. 
+    /// We verify it matches the seeds of the agent's vault.
     #[account(mut)]
     pub agent_authority: AccountInfo<'info>,
 
+    /// CHECK: The staker's token account (destination).
     #[account(mut)]
     pub staker_destination: AccountInfo<'info>,
 
@@ -409,17 +422,18 @@ pub struct ClaimRewards<'info> {
     #[account(mut, seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()], bump)]
     pub stake_info: Account<'info, StakeInfo>,
 
-    /// The mint from which we read the total supply.
-    /// CHECK: We'll manually deserialize.
+    /// CHECK: We'll manually deserialize the mint to get the total supply.
     pub mint: UncheckedAccount<'info>,
 
+    /// CHECK: The rewards vault from which reward tokens will be transferred.
     #[account(mut)]
     pub rewards_vault: AccountInfo<'info>,
 
-    /// The authority over the rewards vault
+    /// CHECK: The authority over the rewards vault (to sign for transfers).
     #[account(mut)]
     pub rewards_authority: AccountInfo<'info>,
 
+    /// CHECK: The staker's token account to receive rewards.
     #[account(mut)]
     pub staker_destination: AccountInfo<'info>,
 
