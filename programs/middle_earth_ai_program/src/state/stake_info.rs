@@ -1,6 +1,5 @@
 use anchor_lang::prelude::*;
 
-/// A per‑staker record for deposits (staked tokens) and issued shares.
 #[account]
 #[derive(Default)]
 pub struct StakeInfo {
@@ -15,13 +14,13 @@ pub struct StakeInfo {
     /// The last time (Unix timestamp) this staker claimed rewards.
     pub last_reward_timestamp: i64,
     /// Bump value for the PDA.
-    pub bump: u8,
+    /// The Unix timestamp when the cooldown ends.
     pub cooldown_ends_at: i64,
-
+    /// Indicates whether the stake_info account has been initialized.
+    pub is_initialized: bool,
 }
 
 impl StakeInfo {
     // This is the extra space required (not including the 8-byte discriminator).
-    pub const INIT_SPACE: usize = 32 + 32 + 8 + 8 + 8 + 1 + 8;
+    pub const INIT_SPACE: usize = 32 + 32 + 8 + 8 + 8 + 1 + 8 + 1; // +1 byte for is_initialized
 }
-

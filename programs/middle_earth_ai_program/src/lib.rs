@@ -23,7 +23,9 @@ pub mod middle_earth_ai_program {
     pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> Result<()> {
         game::initialize_game(ctx, game_id, bump)
     }
-
+    pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> Result<()> {
+        instructions::token::initialize_stake(ctx, deposit_amount)
+    }
     pub fn end_game(ctx: Context<EndGame>) -> Result<()> {
         game::end_game(ctx)
     }
