@@ -268,6 +268,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
 /// --------------------------------------------
 pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
+    let REWARD_RATE_PER_SECOND: u64 = DAILY_REWARD_TOKENS / 86400; 
     require!(stake_info.is_initialized, GameError::NotEnoughTokens);
 
     let now = Clock::get()?.unix_timestamp;
@@ -280,32 +281,30 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
         GameError::ClaimCooldown
     );
+    let time_elapsed = now - stake_info.last_reward_timestamp;
+    // require!(time_elapsed > 0, GameError::InvalidRewardTiming);
 
-    let mint_data = ctx.accounts.mint.data.borrow();
-    let mut mint_slice: &[u8] = &mint_data;
-    let mint_state = spl_token::state::Mint::unpack(&mut mint_slice)?;
-    let total_supply = mint_state.supply;
-    if total_supply == 0 {
-        return Ok(());
-    }
+    // Ensure total_shares is not zero to prevent division by zero
+//    require!(ctx.accounts.agent.total_shares > 0, GameError::NoShares);
 
-    let staker_data = {
-        let data = ctx.accounts.staker_destination.data.borrow();
-        let mut slice: &[u8] = &data;
-        anchor_spl::token::TokenAccount::try_deserialize(&mut slice)?.amount
-    };
-    if staker_data == 0 {
-        return Ok(());
-    }
+    // Calculate the user's share proportion
+    let stake_shares = stake_info.shares as f64;
+    let total_shares = ctx.accounts.agent.total_shares as f64;
+    let share_proportion = stake_shares / total_shares;
 
-    // fraction = staker_balance / total_supply
-    let fraction = (staker_data as f64) / (total_supply as f64);
-    let user_reward_float = fraction * (DAILY_REWARD_TOKENS as f64);
+    // Calculate the rewards based on time elapsed and share proportion
+    let user_reward_float = (time_elapsed as f64) * (REWARD_RATE_PER_SECOND as f64) * share_proportion;
     let user_reward = user_reward_float.floor() as u64;
-    if user_reward == 0 {
-        return Ok(());
-    }
+  //  require!(user_reward > 0, GameError::NoRewardsToClaim);
 
+    // Ensure the rewards vault has sufficient balance
+    let rewards_vault_info = ctx.accounts.rewards_vault.to_account_info();
+    let mut rewards_vault_data = rewards_vault_info.data.borrow_mut();
+    let mut rewards_vault_slice: &[u8] = &rewards_vault_data;
+    let rewards_vault_account = TokenAccount::try_deserialize(&mut rewards_vault_slice)?;
+    //require!(rewards_vault_account.amount >= user_reward, GameError::InsufficientRewards);
+
+    // Transfer rewards to the staker
     let cpi_accounts = Transfer {
         from: ctx.accounts.rewards_vault.to_account_info(),
         to: ctx.accounts.staker_destination.to_account_info(),
@@ -315,6 +314,7 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
     token::transfer(cpi_ctx, user_reward)?;
 
+    // Update stake_info
     stake_info.last_reward_timestamp = now;
 
     Ok(())
