@@ -17,7 +17,7 @@ import { AccountLayout } from "@solana/spl-token";
  *  1) Creates a new Game account
  *  2) Registers a new Agent referencing that Game
  *  3) Creates a token mint for staking
- *  4) Creates an Agent vault token account owned by the Agent's PDA
+ *  4) Creates an Agent vault token account owned by the Authority's wallet
  *  5) Calls initialize_stake, stake, partially unstake, fully unstake, etc.
  */
 describe("Agent + Staking Full Test", () => {
@@ -33,9 +33,6 @@ describe("Agent + Staking Full Test", () => {
   let agentPda: PublicKey;
   let tokenMint: PublicKey;
   let agentVault: PublicKey;
-
-  // Additional PDAs used for authority
-  let agentAuthorityPda: PublicKey; // <--- THIS is the correct PDA for [b"agent_authority", agentPda]
 
   // Our seeds / IDs
   const gameId = new BN(777); // example
@@ -163,7 +160,7 @@ describe("Agent + Staking Full Test", () => {
     );
     console.log("Created token mint:", tokenMint.toBase58());
 
-    // Create ephemeral vault for the agent
+    // Create agent vault owned by the authority (provider.wallet.publicKey)
     const vaultKeypair = Keypair.generate();
     const size = AccountLayout.span;
     const lamports = await provider.connection.getMinimumBalanceForRentExemption(size);
@@ -178,28 +175,13 @@ describe("Agent + Staking Full Test", () => {
     const initVaultIx = createInitializeAccountInstruction(
       vaultKeypair.publicKey,
       tokenMint,
-      agentPda, // agent pda is the "owner"
+      provider.wallet.publicKey, // authority is the owner
       TOKEN_PROGRAM_ID
     );
     const tx = new web3.Transaction().add(createVaultIx, initVaultIx);
     await provider.sendAndConfirm(tx, [vaultKeypair]);
     agentVault = vaultKeypair.publicKey;
     console.log("Agent vault created:", agentVault.toBase58());
-  });
-
-  // ----------------------------------------------------------------
-  // 3.5) Derive the agentAuthority PDA
-  // ----------------------------------------------------------------
-  it("Derive agent authority PDA for [b'agent_authority', agentPda]", async () => {
-    const [authPda, authBump] = await PublicKey.findProgramAddress(
-      [Buffer.from("agent_authority"), agentPda.toBuffer()],
-      program.programId
-    );
-    agentAuthorityPda = authPda;
-
-    console.log("Derived agentAuthorityPda:", agentAuthorityPda.toBase58());
-    // Not strictly necessary to verify on-chain, 
-    // but we must pass this address to the `unstakeTokens` calls.
   });
 
   // ----------------------------------------------------------------
@@ -300,36 +282,37 @@ describe("Agent + Staking Full Test", () => {
   });
 
   // ----------------------------------------------------------------
-  // 6) partial unstake
+  // 6) Partial Unstake
   // ----------------------------------------------------------------
   it("Partially unstakes some tokens", async () => {
     await program.methods
-    .unstakeTokens(new BN(PARTIAL_UNSTAKE))
-    .accounts({
-      agent: agentPda,
-      game: gamePda,
-      stakeInfo: stakeInfoPda,
-      agentVault: agentVault,
-      agentAuthority: await PublicKey.findProgramAddressSync(
-        [Buffer.from("agent_authority"), agentPda.toBuffer()],
-        program.programId
-      )[0], // Find the correct PDA
-      stakerDestination: stakerTokenAccount,
-      authority: provider.wallet.publicKey,
-      systemProgram: SystemProgram.programId,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .rpc();
+      .unstakeTokens(new BN(PARTIAL_UNSTAKE))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPda,
+        agentVault: agentVault,
+        stakerDestination: stakerTokenAccount,
+        authority: provider.wallet.publicKey, // Authority is the staker
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
-    expect(
-      Number(stakeInfo.amount)
-    ).to.equal(FIRST_DEPOSIT + SECOND_DEPOSIT - PARTIAL_UNSTAKE);
+    expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT + SECOND_DEPOSIT - PARTIAL_UNSTAKE);
     console.log("Partial unstake done:", PARTIAL_UNSTAKE);
+
+    // Verify token balances
+    const finalStakeTokenBalance = await getTokenBalance(agentVault);
+    const finalStakerTokenBalance = await getTokenBalance(stakerTokenAccount);
+    console.log(
+      `After partial unstake: agentVault balance = ${finalStakeTokenBalance}, stakerTokenAccount balance = ${finalStakerTokenBalance}`
+    );
   });
 
   // ----------------------------------------------------------------
-  // 7) fully unstake the rest
+  // 7) Fully Unstake the Rest
   // ----------------------------------------------------------------
   it("Fully unstakes leftover", async () => {
     const stakeInfoBefore = await program.account.stakeInfo.fetch(stakeInfoPda);
@@ -342,12 +325,8 @@ describe("Agent + Staking Full Test", () => {
         game: gamePda,
         stakeInfo: stakeInfoPda,
         agentVault: agentVault,
-
-        // again: pass the correct agentAuthority
-        agentAuthority: agentAuthorityPda,
-
         stakerDestination: stakerTokenAccount,
-        authority: provider.wallet.publicKey,
+        authority: provider.wallet.publicKey, // Authority is the staker
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
@@ -357,5 +336,12 @@ describe("Agent + Staking Full Test", () => {
     expect(Number(stakeInfoAfter.amount)).to.equal(0);
     expect(Number(stakeInfoAfter.shares)).to.equal(0);
     console.log("Fully unstaked leftover. All staked tokens returned.");
+
+    // Verify token balances
+    const finalStakeTokenBalance = await getTokenBalance(agentVault);
+    const finalStakerTokenBalance = await getTokenBalance(stakerTokenAccount);
+    console.log(
+      `After full unstake: agentVault balance = ${finalStakeTokenBalance}, stakerTokenAccount balance = ${finalStakerTokenBalance}`
+    );
   });
 });
