@@ -306,6 +306,22 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
 }
 
 
+pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: u64) -> Result<()> {
+    // Only game authority can call this function
+    let game = &mut ctx.accounts.game;
+    require!(ctx.accounts.authority.key() == game.authority, GameError::Unauthorized);
+
+    // Update the daily reward
+    game.daily_reward_tokens = new_daily_reward;
+
+    // Emit an event (optional)
+    emit!(DailyRewardUpdated {
+        new_daily_reward
+    });
+
+    Ok(())
+}
+
 
 // -----------------------------------
 // ACCOUNTS STRUCTS
@@ -446,24 +462,7 @@ pub struct ClaimRewards<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-/// --------------------------------------------
-/// UPDATE DAILY REWARDS (New Function)
-/// --------------------------------------------
-pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: u64) -> Result<()> {
-    // Only game authority can call this function
-    let game = &mut ctx.accounts.game;
-    require!(ctx.accounts.authority.key() == game.authority, GameError::Unauthorized);
 
-    // Update the daily reward
-    game.daily_reward_tokens = new_daily_reward;
-
-    // Emit an event (optional)
-    emit!(DailyRewardUpdated {
-        new_daily_reward
-    });
-
-    Ok(())
-}
 
 #[derive(Accounts)]
 pub struct UpdateDailyRewards<'info> {

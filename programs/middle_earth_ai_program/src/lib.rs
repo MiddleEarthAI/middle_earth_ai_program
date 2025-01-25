@@ -23,9 +23,11 @@ pub mod middle_earth_ai_program {
     pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> Result<()> {
         game::initialize_game(ctx, game_id, bump)
     }
+
     pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> Result<()> {
         instructions::token::initialize_stake(ctx, deposit_amount)
     }
+
     pub fn end_game(ctx: Context<EndGame>) -> Result<()> {
         game::end_game(ctx)
     }
@@ -59,7 +61,6 @@ pub mod middle_earth_ai_program {
     }
 
     /// Resolves a battle with alliances by updating cooldowns for all allied agents.
-
     pub fn resolve_battle_agent_vs_alliance(
         ctx: Context<ResolveBattleAgentAlliance>,
         percent_lost: u8,
@@ -75,6 +76,7 @@ pub mod middle_earth_ai_program {
     ) -> Result<()> {
         battle::resolve_battle_alliance_vs_alliance(ctx, percent_lost, alliance_a_wins)
     }
+
     /// Resolves a simple battle (without alliances) by updating the winner's and loser's cooldowns.
     pub fn resolve_battle_simple(ctx: Context<ResolveBattleSimple>, percent_loss: u8) -> Result<()> {
         battle::resolve_battle_simple(ctx, percent_loss)
@@ -99,6 +101,14 @@ pub mod middle_earth_ai_program {
 
     pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         token::claim_staking_rewards(ctx)
+    }
+
+    /// **Update Daily Rewards Function**
+    ///
+    /// Allows the game authority to update the daily rewards for staking.
+    /// **Access Control:** Only the game authority can call this function.
+    pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: u64) -> Result<()> {
+        instructions::token::update_daily_rewards(ctx, new_daily_reward)
     }
 }
 
