@@ -200,11 +200,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         .checked_div(total_shares)
         .ok_or(GameError::NotEnoughTokens)?;
 
-    // Debug Logs
-    msg!("UnstakeTokens: shares_to_redeem: {}", shares_to_redeem);
-    msg!("UnstakeTokens: vault_balance: {}", vault_balance);
-    msg!("UnstakeTokens: total_shares: {}", total_shares);
-    msg!("UnstakeTokens: withdraw_amount: {}", withdraw_amount);
+    
 
     // Update agent's total_shares
     ctx.accounts.agent.total_shares = ctx
