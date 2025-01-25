@@ -72,7 +72,6 @@ describe("Agent Tests", () => {
       expect(agentAccount.currentBattleStart).to.be.null;
       expect(agentAccount.allianceWith).to.be.null;
       expect(agentAccount.allianceTimestamp.toNumber()).to.equal(0);
-      expect(agentAccount.ignoreCooldowns).to.be.an("array").that.is.empty;
       expect(agentAccount.tokenBalance.toNumber()).to.equal(0);
       expect(agentAccount.stakedBalance.toNumber()).to.equal(0);
       expect(agentAccount.lastRewardClaim.toNumber()).to.equal(0);

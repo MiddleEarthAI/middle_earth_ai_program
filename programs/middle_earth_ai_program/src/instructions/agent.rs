@@ -44,7 +44,6 @@ pub fn register_agent(
     agent_account.current_battle_start = None;
     agent_account.alliance_with = None;
     agent_account.alliance_timestamp = 0;
-    agent_account.ignore_cooldowns = Vec::new();
     agent_account.token_balance = 0;
     agent_account.staked_balance = 0;
     agent_account.last_reward_claim = 0;

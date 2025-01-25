@@ -76,4 +76,11 @@ pub enum GameError {
     /// Added `InvalidAmount` variant to handle invalid deposit or unstake amounts.
     #[msg("Invalid amount specified.")]
     InvalidAmount,
+    #[msg("Invalid bump.")]
+    InvalidBump, // Added for accessing bumps safely
+    #[msg("No rewards to claim.")]
+    NoRewardsToClaim, // Added variant
+
+    #[msg("Insufficient rewards to complete this action.")]
+    InsufficientRewards, // Added variant
 }

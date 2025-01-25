@@ -88,9 +88,6 @@ pub mod middle_earth_ai_program {
         alliance::break_alliance(ctx)
     }
 
-    pub fn ignore_agent(ctx: Context<IgnoreAgent>, target_agent_id: u8) -> Result<()> {
-        ignore::ignore_agent(ctx, target_agent_id)
-    }
 
     pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> Result<()> {
         token::stake_tokens(ctx, amount)
