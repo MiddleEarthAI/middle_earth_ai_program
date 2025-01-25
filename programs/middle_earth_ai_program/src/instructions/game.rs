@@ -11,7 +11,7 @@ pub enum TerrainType {
     Plain,
 }
 
-pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> Result<()> {
+pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8 ) -> Result<()> {
     let game_account = &mut ctx.accounts.game;
 
     // Ensure the game is not already active
@@ -23,6 +23,7 @@ pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8) -> 
     game_account.last_update = Clock::get()?.unix_timestamp;
     game_account.reentrancy_guard = false;
     game_account.bump = bump;
+    game_account.daily_reward_tokens = 0;
 
     Ok(())
 }
@@ -74,6 +75,7 @@ pub struct InitializeGame<'info> {
     pub authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+
 }
 
 #[derive(Accounts)]

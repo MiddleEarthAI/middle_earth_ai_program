@@ -2,8 +2,6 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Transfer, Token, TokenAccount};
 use crate::state::{Agent, Game, StakeInfo, StakerStake};
 use crate::error::GameError;
-// Removed: use crate::constants::*;
-// Removed: use anchor_lang::solana_program::program_pack::Pack;
 
 pub const DAILY_REWARD_TOKENS: u64 = 500_000;
 pub const ONE_HOUR: i64 = 3600;
@@ -202,6 +200,12 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         .checked_div(total_shares)
         .ok_or(GameError::NotEnoughTokens)?;
 
+    // Debug Logs
+    msg!("UnstakeTokens: shares_to_redeem: {}", shares_to_redeem);
+    msg!("UnstakeTokens: vault_balance: {}", vault_balance);
+    msg!("UnstakeTokens: total_shares: {}", total_shares);
+    msg!("UnstakeTokens: withdraw_amount: {}", withdraw_amount);
+
     // Update agent's total_shares
     ctx.accounts.agent.total_shares = ctx
         .accounts
@@ -228,10 +232,6 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     )?;
 
     // Transfer tokens from the vault to the staker
-    // The "agent_authority" from original code is removed. We'll use "agentAuthority" as a normal signer if needed
-    // But here, by referencing the battle code, each "agent" or "authority" is a direct signer.
-    // In the test suite, the agent vault is owned by the agent (the same 'authority' who can sign).
-    // So we do a direct Transfer with "authority: agent" as a Signer or "authority" if the user is the agent.
     let cpi_accounts = Transfer {
         from: ctx.accounts.agent_vault.to_account_info(),
         to: ctx.accounts.staker_destination.to_account_info(),
@@ -244,6 +244,9 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     );
 
     token::transfer(cpi_ctx, withdraw_amount as u64)?;
+
+    // Debug Log after Transfer
+    msg!("UnstakeTokens: Transferred {} tokens from agent_vault to staker_destination", withdraw_amount);
 
     Ok(())
 }
@@ -301,6 +304,8 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
 
     Ok(())
 }
+
+
 
 // -----------------------------------
 // ACCOUNTS STRUCTS
@@ -439,4 +444,40 @@ pub struct ClaimRewards<'info> {
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+}
+
+/// --------------------------------------------
+/// UPDATE DAILY REWARDS (New Function)
+/// --------------------------------------------
+pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: u64) -> Result<()> {
+    // Only game authority can call this function
+    let game = &mut ctx.accounts.game;
+    require!(ctx.accounts.authority.key() == game.authority, GameError::Unauthorized);
+
+    // Update the daily reward
+    game.daily_reward_tokens = new_daily_reward;
+
+    // Emit an event (optional)
+    emit!(DailyRewardUpdated {
+        new_daily_reward
+    });
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct UpdateDailyRewards<'info> {
+    #[account(mut, has_one = authority)]
+    pub game: Account<'info, Game>,
+
+    /// The authority to update daily rewards (game authority)
+    pub authority: Signer<'info>,
+}
+
+/// --------------------------------------------
+/// EVENTS (Optional)
+/// --------------------------------------------
+#[event]
+pub struct DailyRewardUpdated {
+    pub new_daily_reward: u64,
 }

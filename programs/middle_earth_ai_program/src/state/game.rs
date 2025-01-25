@@ -13,7 +13,7 @@ pub struct Game {
     pub last_update: i64,       // Timestamp of last game state update
     pub reentrancy_guard: bool, // Guard against reentrancy attacks
     pub bump: u8,               // PDA bump seed
-
+    pub daily_reward_tokens: u64, // Number of tokens to distribute daily
     #[max_len(5)]
     pub alliances: Vec<Alliance>, 
 

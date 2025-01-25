@@ -18,7 +18,7 @@ import { AccountLayout } from "@solana/spl-token";
  *  2) Registers a new Agent referencing that Game
  *  3) Creates a token mint for staking
  *  4) Creates an Agent vault token account owned by the Authority's wallet
- *  5) Calls initialize_stake, stake, partially unstake, fully unstake, etc.
+ *  5) Calls initialize_stake, stake, partially unstake, fully unstake, claim_rewards, and update_daily_rewards
  */
 describe("Agent + Staking Full Test", () => {
   // Use the local Anchor provider
@@ -231,11 +231,19 @@ describe("Agent + Staking Full Test", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
+    console.log("InitializeStake transaction completed.");
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
     expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT);
     expect(stakeInfo.isInitialized).to.be.true;
     console.log("StakeInfo validated, first deposit success.");
+
+    // Fetch and log agent.total_shares and agent_vault.balance
+    const agentAccount = await program.account.agent.fetch(agentPda);
+    console.log("Agent total_shares after initialize_stake:", agentAccount.total_shares.toString());
+
+    const vaultBalance = await getTokenBalance(agentVault);
+    console.log("Agent vault balance after initialize_stake:", vaultBalance);
   });
 
   it("StakeTokens again (second deposit)", async () => {
@@ -252,10 +260,18 @@ describe("Agent + Staking Full Test", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
+    console.log("StakeTokens (second deposit) transaction completed.");
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
     expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT + SECOND_DEPOSIT);
     console.log("Second deposit success. stakeInfo updated.");
+
+    // Fetch and log agent.total_shares and agent_vault.balance
+    const agentAccount = await program.account.agent.fetch(agentPda);
+    console.log("Agent total_shares after stake_tokens:", agentAccount.total_shares.toString());
+
+    const vaultBalance = await getTokenBalance(agentVault);
+    console.log("Agent vault balance after stake_tokens:", vaultBalance);
   });
 
   it("Fails if trying to over-stake beyond staker's balance", async () => {
@@ -285,6 +301,14 @@ describe("Agent + Staking Full Test", () => {
   // 6) Partial Unstake
   // ----------------------------------------------------------------
   it("Partially unstakes some tokens", async () => {
+    // Fetch and log agent.total_shares and agent_vault.balance before unstake
+    const agentAccountBefore = await program.account.agent.fetch(agentPda);
+    console.log("Agent total_shares before unstake:", agentAccountBefore.total_shares.toString());
+
+    const vaultBalanceBefore = await getTokenBalance(agentVault);
+    console.log("Agent vault balance before unstake:", vaultBalanceBefore);
+
+    // Perform partial unstake
     await program.methods
       .unstakeTokens(new BN(PARTIAL_UNSTAKE))
       .accounts({
@@ -298,17 +322,35 @@ describe("Agent + Staking Full Test", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
+    console.log("UnstakeTokens (partial unstake) transaction completed.");
 
+    // Fetch stake_info after unstake
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
     expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT + SECOND_DEPOSIT - PARTIAL_UNSTAKE);
     console.log("Partial unstake done:", PARTIAL_UNSTAKE);
 
-    // Verify token balances
-    const finalStakeTokenBalance = await getTokenBalance(agentVault);
+    // Fetch and log agent.total_shares and agent_vault.balance after unstake
+    const agentAccountAfter = await program.account.agent.fetch(agentPda);
+    console.log("Agent total_shares after unstake:", agentAccountAfter.total_shares.toString());
+
+    const finalVaultBalance = await getTokenBalance(agentVault);
     const finalStakerTokenBalance = await getTokenBalance(stakerTokenAccount);
     console.log(
-      `After partial unstake: agentVault balance = ${finalStakeTokenBalance}, stakerTokenAccount balance = ${finalStakerTokenBalance}`
+      `After partial unstake: agentVault balance = ${finalVaultBalance}, stakerTokenAccount balance = ${finalStakerTokenBalance}`
     );
+
+    // Additional Assertions
+    // Calculating expected shares_to_redeem based on total_shares and withdraw_amount
+    const expectedSharesAfter = agentAccountBefore.total_shares - PARTIAL_UNSTAKE;
+    expect(Number(agentAccountAfter.total_shares)).to.equal(expectedSharesAfter);
+
+    // Calculating expected vault balance after unstake
+    const expectedVaultBalanceAfter = vaultBalanceBefore - PARTIAL_UNSTAKE;
+    expect(finalVaultBalance).to.equal(expectedVaultBalanceAfter);
+
+    // Calculating expected staker token balance after unstake
+    const expectedStakerBalanceAfter = 1_000_000 + PARTIAL_UNSTAKE; // Initial mint was 1,000,000
+    expect(finalStakerTokenBalance).to.equal(expectedStakerBalanceAfter);
   });
 
   // ----------------------------------------------------------------
@@ -317,6 +359,13 @@ describe("Agent + Staking Full Test", () => {
   it("Fully unstakes leftover", async () => {
     const stakeInfoBefore = await program.account.stakeInfo.fetch(stakeInfoPda);
     const leftoverShares = Number(stakeInfoBefore.shares);
+
+    // Fetch and log agent.total_shares and agent_vault.balance before full unstake
+    const agentAccountBefore = await program.account.agent.fetch(agentPda);
+    console.log("Agent total_shares before full unstake:", agentAccountBefore.total_shares.toString());
+
+    const vaultBalanceBefore = await getTokenBalance(agentVault);
+    console.log("Agent vault balance before full unstake:", vaultBalanceBefore);
 
     await program.methods
       .unstakeTokens(new BN(leftoverShares))
@@ -331,17 +380,132 @@ describe("Agent + Staking Full Test", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
+    console.log("UnstakeTokens (full unstake) transaction completed.");
 
     const stakeInfoAfter = await program.account.stakeInfo.fetch(stakeInfoPda);
     expect(Number(stakeInfoAfter.amount)).to.equal(0);
     expect(Number(stakeInfoAfter.shares)).to.equal(0);
     console.log("Fully unstaked leftover. All staked tokens returned.");
 
-    // Verify token balances
-    const finalStakeTokenBalance = await getTokenBalance(agentVault);
+    // Fetch and log agent.total_shares and agent_vault.balance after full unstake
+    const agentAccountAfter = await program.account.agent.fetch(agentPda);
+    console.log("Agent total_shares after full unstake:", agentAccountAfter.total_shares.toString());
+
+    const finalVaultBalance = await getTokenBalance(agentVault);
     const finalStakerTokenBalance = await getTokenBalance(stakerTokenAccount);
     console.log(
-      `After full unstake: agentVault balance = ${finalStakeTokenBalance}, stakerTokenAccount balance = ${finalStakerTokenBalance}`
+      `After full unstake: agentVault balance = ${finalVaultBalance}, stakerTokenAccount balance = ${finalStakerTokenBalance}`
     );
+
+    // Additional Assertions
+    expect(Number(stakeInfoAfter.amount)).to.equal(0);
+    expect(Number(stakeInfoAfter.shares)).to.equal(0);
+    expect(Number(agentAccountAfter.total_shares)).to.equal(0);
+    expect(finalVaultBalance).to.equal(0);
+    expect(finalStakerTokenBalance).to.equal(1_000_000 + PARTIAL_UNSTAKE); // 1,000,000 + 200 = 1,000,200
+  });
+
+  // ----------------------------------------------------------------
+  // 8) Claim Rewards
+  // ----------------------------------------------------------------
+  it("Claims staking rewards", async () => {
+    // First, stake again to have shares and accrue rewards
+    await program.methods
+      .stakeTokens(new BN(FIRST_DEPOSIT))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPda,
+        stakerSource: stakerTokenAccount,
+        agentVault: agentVault,
+        authority: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+    console.log("Staked additional tokens for rewards testing.");
+
+    // Fast-forward time by increasing the system clock
+    // Note: In local testing, you might need to mock time or manipulate the clock.
+    // Anchor doesn't provide a direct way to manipulate time, so rewards will be minimal.
+    // For demonstration, we'll assume enough time has passed.
+
+    // Claim rewards
+    await program.methods
+      .claimStakingRewards()
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPda,
+        mint: tokenMint,
+        rewards_vault: agentVault, // Assuming rewards are in the agent_vault for simplicity
+        rewards_authority: provider.wallet.publicKey, // Assuming the authority controls rewards_vault
+        staker_destination: stakerTokenAccount,
+        authority: provider.wallet.publicKey, // Staker claims rewards
+        system_program: SystemProgram.programId,
+        token_program: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+    console.log("ClaimRewards transaction completed.");
+
+    // Fetch stake_info after claiming rewards
+    const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
+    console.log("StakeInfo after claiming rewards:", stakeInfo.amount.toString());
+
+    // Fetch and log staker's token balance
+    const finalStakerTokenBalance = await getTokenBalance(stakerTokenAccount);
+    console.log("Staker's token account balance after claiming rewards:", finalStakerTokenBalance);
+
+    // Since time manipulation isn't straightforward in local tests, we'll check if any rewards were claimed
+    // Adjust expectations based on your implementation
+    expect(finalStakerTokenBalance).to.be.greaterThan(1_000_200);
+  });
+
+  // ----------------------------------------------------------------
+  // 9) Update Daily Rewards
+  // ----------------------------------------------------------------
+  it("Updates daily rewards by game authority", async () => {
+    const newDailyReward = 1_000_000; // New daily reward
+
+    await program.methods
+      .updateDailyRewards(new BN(newDailyReward))
+      .accounts({
+        game: gamePda,
+        authority: provider.wallet.publicKey, // Only game authority can call
+      })
+      .rpc();
+    console.log("UpdateDailyRewards transaction completed.");
+
+    // Fetch and verify the updated daily_reward_tokens
+    const gameAcct = await program.account.game.fetch(gamePda);
+    expect(gameAcct.daily_reward_tokens).to.equal(newDailyReward);
+    console.log("Daily rewards updated successfully.");
+
+    // Attempt to update daily rewards with a non-authority signer
+    const nonAuthority = Keypair.generate();
+
+    // Airdrop some SOL to the non-authority for transaction fees
+    const airdropSignature = await provider.connection.requestAirdrop(
+      nonAuthority.publicKey,
+      2 * web3.LAMPORTS_PER_SOL
+    );
+    await provider.connection.confirmTransaction(airdropSignature, "confirmed");
+    console.log("Airdropped SOL to non-authority:", nonAuthority.publicKey.toBase58());
+
+    let failed = false;
+    try {
+      await program.methods
+        .updateDailyRewards(new BN(2_000_000))
+        .accounts({
+          game: gamePda,
+          authority: nonAuthority.publicKey, // Non-authority attempting to update
+        })
+        .signers([nonAuthority])
+        .rpc();
+    } catch (err: any) {
+      console.log("Unauthorized update_daily_rewards attempt failed as expected:", err.message);
+      failed = true;
+    }
+    expect(failed).to.be.true;
   });
 });
