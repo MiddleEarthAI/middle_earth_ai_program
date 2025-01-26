@@ -235,7 +235,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     let cpi_accounts = Transfer {
         from: ctx.accounts.agent_vault.to_account_info(),
         to: ctx.accounts.staker_destination.to_account_info(),
-        authority: ctx.accounts.authority.to_account_info(),
+        authority: ctx.accounts.game_authority.to_account_info(),
     };
 
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
@@ -283,7 +283,7 @@ pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
 /// --------------------------------------------
 pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
-    let REWARD_RATE_PER_SECOND: u64 = DAILY_REWARD_TOKENS / 86400; 
+    let REWARD_RATE_PER_SECOND: u64 = DAILY_REWARD_TOKENS / 86400;
     require!(stake_info.is_initialized, GameError::NotEnoughTokens);
     require_keys_eq!(
         stake_info.staker,
@@ -357,6 +357,7 @@ pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: 
 // -----------------------------------
 
 #[derive(Accounts)]
+#[instruction(game_id: u32, bump: u8)]
 pub struct InitializeStake<'info> {
     #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
@@ -438,7 +439,11 @@ pub struct UnstakeTokens<'info> {
     pub staker_destination: AccountInfo<'info>,
 
     #[account(mut)]
-    pub authority: Signer<'info>, // The staker or agent is directly signing
+    pub authority: Signer<'info>, // The staker
+
+    /// The game authority, who owns the vault
+    #[account(mut)]
+    pub game_authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,

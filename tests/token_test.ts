@@ -14,15 +14,13 @@ import { AccountLayout } from "@solana/spl-token";
 
 /**
  * This test file demonstrates:
- *  1) Single "Agent" that multiple stakers can stake into (so we remove `has_one=authority` on agent).
- *  2) Staker1 stakes/unstakes partially (by EXACT token amounts).
- *  3) Staker2 also stakes, partially unstakes.
- *  4) Unauthorized tries to unstake staker1 => fails.
- * 
- * Key Points:
- *  - Because your program is share-based, we must compute how many shares equals an exact token amount.
- *    That way, we can test partial unstakes for EXACT 2000 tokens, etc.
+ *  1) "gameAuthority" truly owns the agent vault (agent_vault).
+ *  2) Stakers (staker1, staker2) deposit/unstake by calling the program, 
+ *     but must sign along with "gameAuthority" when unstaking (since the vault is owned by gameAuthority).
+ *  3) Unauthorized attempts fail.
+ *  4) Partial unstake calculations (share-based).
  */
+
 describe("Agent + Staking Full Test", () => {
   // Use the local Anchor provider
   const provider = anchor.AnchorProvider.local();
@@ -31,11 +29,14 @@ describe("Agent + Staking Full Test", () => {
   // The program
   const program = anchor.workspace.MiddleEarthAiProgram as Program<MiddleEarthAiProgram>;
 
-  // We'll populate these as we create them
+  // PDAs and addresses
   let gamePda: PublicKey;
   let agentPda: PublicKey;
   let tokenMint: PublicKey;
-  let agentVault: PublicKey;
+  let agentVault: PublicKey; // owned by gameAuthority
+
+  // We'll create a dedicated Game Authority
+  const gameAuthority = Keypair.generate();
 
   // Seeds / IDs
   const gameId = new BN(777);
@@ -43,30 +44,30 @@ describe("Agent + Staking Full Test", () => {
 
   // We'll store stakeInfo PDAs for each staker
   let stakeInfoPdaStaker1: PublicKey;
-  let stakeInfoPdaStaker2: PublicKey; // For second staker scenario
+  let stakeInfoPdaStaker2: PublicKey; 
 
   // Constants for staking
   const FIRST_DEPOSIT = 5000;
   const SECOND_DEPOSIT = 3000;
   const PARTIAL_UNSTAKE_TOKENS = 2000;
-  const LARGE_STAKE_AMOUNT = 2_000_000; // Over stake to test failure
+  const LARGE_STAKE_AMOUNT = 2_000_000; 
 
   // We'll create two stakers:
-  const staker1 = provider.wallet; // The default anchor test wallet
-  const staker2 = Keypair.generate(); // A second user
+  const staker1 = provider.wallet; // default Anchor test wallet
+  const staker2 = Keypair.generate(); 
 
-  // We'll hold their token accounts here
+  // We'll hold their token accounts
   let staker1TokenAccount: PublicKey;
   let staker2TokenAccount: PublicKey;
 
-  // Helper to read SPL token balance
+  // Helper to get SPL token balance
   async function getTokenBalance(pubkey: PublicKey) {
     const acct = await getAccount(provider.connection, pubkey);
     return Number(acct.amount);
   }
 
   /**
-   * Creates a token account in the user's wallet.
+   * Create a token account for a user.
    */
   async function createTokenAccountForUser(
     userPubkey: PublicKey,
@@ -95,34 +96,32 @@ describe("Agent + Staking Full Test", () => {
   }
 
   /**
-   * Since your unstakeTokens instruction expects "shares" but we want to unstake EXACT `tokenAmount`,
-   * we convert: sharesNeeded = (tokenAmount * totalShares) / vaultBalance.
-   * We'll do integer math with `floor`.
+   * We want to unstake EXACT 'tokenAmount' from a share-based vault.
+   * So sharesNeeded = (tokenAmount * totalShares) / vaultBalance, floored.
    */
-  async function computeSharesForExactUnstake(
-    tokenAmount: number,
-    stakerPda: PublicKey
-  ): Promise<number> {
-    // fetch agent and read agent.totalShares
+  async function computeSharesForExactUnstake(tokenAmount: number): Promise<number> {
     const agentAcct = await program.account.agent.fetch(agentPda);
-    const totalSharesBN = agentAcct.totalShares as anchor.BN;
-    const totalShares = Number(totalSharesBN);
+    const totalShares = Number(agentAcct.totalShares);
 
-    // read vault's balance
     const vaultBalance = await getTokenBalance(agentVault);
     if (vaultBalance === 0 || totalShares === 0) {
-      // If there's no balance or no totalShares, can't compute ratio
       return 0;
     }
-
-    // sharesNeeded = tokenAmount * totalShares / vaultBalance
     const sharesFloat = (tokenAmount * totalShares) / vaultBalance;
-    const sharesNeeded = Math.floor(sharesFloat);
-    return sharesNeeded;
+    return Math.floor(sharesFloat);
   }
 
   // ----------------------------------------------------------------
-  // 1) Initialize Game
+  // 1) Airdrop SOL to the game authority
+  // ----------------------------------------------------------------
+  it("Airdrop SOL to the game authority", async () => {
+    const sig = await provider.connection.requestAirdrop(gameAuthority.publicKey, 2e9); // 2 SOL
+    await provider.connection.confirmTransaction(sig, "confirmed");
+    console.log("Airdropped 2 SOL to gameAuthority:", gameAuthority.publicKey.toBase58());
+  });
+
+  // ----------------------------------------------------------------
+  // 2) Initialize a brand-new Game (owned by gameAuthority)
   // ----------------------------------------------------------------
   it("Initialize a brand-new Game", async () => {
     const [pda, bump] = await PublicKey.findProgramAddress(
@@ -135,9 +134,10 @@ describe("Agent + Staking Full Test", () => {
       .initializeGame(gameId, new BN(bump))
       .accounts({
         game: gamePda,
-        authority: provider.wallet.publicKey,
+        authority: gameAuthority.publicKey, // game authority
         systemProgram: SystemProgram.programId,
       })
+      .signers([gameAuthority])
       .rpc();
     console.log("Game created at:", gamePda.toBase58());
 
@@ -145,11 +145,11 @@ describe("Agent + Staking Full Test", () => {
     const gameAcct = await program.account.game.fetch(gamePda);
     expect(gameAcct.isActive).to.be.true;
     expect(Number(gameAcct.gameId)).to.equal(gameId.toNumber());
-    expect(gameAcct.authority.toBase58()).to.equal(provider.wallet.publicKey.toBase58());
+    expect(gameAcct.authority.toBase58()).to.equal(gameAuthority.publicKey.toBase58());
   });
 
   // ----------------------------------------------------------------
-  // 2) Register Agent (Remove or update `has_one = authority` in your Rust code!)
+  // 3) Register Agent referencing that Game
   // ----------------------------------------------------------------
   it("Register an Agent referencing that Game", async () => {
     const [apda] = await PublicKey.findProgramAddress(
@@ -158,17 +158,18 @@ describe("Agent + Staking Full Test", () => {
     );
     agentPda = apda;
 
-    // We'll do a name
     const agentName = "Frodo";
 
+    // We'll sign with gameAuthority since agent belongs to gameAuthority
     await program.methods
       .registerAgent(agentId, 10, -4, agentName)
       .accounts({
         game: gamePda,
         agent: agentPda,
-        authority: provider.wallet.publicKey, // the agent's authority for admin, but not for stakers
+        authority: gameAuthority.publicKey,
         systemProgram: SystemProgram.programId,
       })
+      .signers([gameAuthority])
       .rpc();
     console.log("Agent registered at:", agentPda.toBase58());
 
@@ -176,64 +177,65 @@ describe("Agent + Staking Full Test", () => {
     const agentAcct = await program.account.agent.fetch(agentPda);
     expect(agentAcct.isAlive).to.be.true;
     expect(agentAcct.game.toBase58()).to.equal(gamePda.toBase58());
-    // `agentAcct.authority` is the one who can do agent-level updates, but not necessarily staker
+    expect(agentAcct.authority.toBase58()).to.equal(gameAuthority.publicKey.toBase58());
     expect(agentAcct.id).to.equal(agentId);
   });
 
   // ----------------------------------------------------------------
-  // 3) Create a token mint & Agent Vault
+  // 4) Create a token mint & agent vault (owned by gameAuthority)
   // ----------------------------------------------------------------
-  it("Create token mint & agent vault", async () => {
-    // Create a token mint
+  it("Create token mint & agent vault with gameAuthority as owner", async () => {
+    // 4a) Create a token mint
     const mintDecimals = 6;
     tokenMint = await createMint(
       provider.connection,
-      provider.wallet.payer,
-      provider.wallet.publicKey,
+      gameAuthority,            // Payer
+      gameAuthority.publicKey,  // Mint authority
       null,
       mintDecimals
     );
     console.log("Created token mint:", tokenMint.toBase58());
 
-    // Create agent vault
+    // 4b) Create agent vault owned by the game authority
     const vaultKeypair = Keypair.generate();
     const size = AccountLayout.span;
     const lamports = await provider.connection.getMinimumBalanceForRentExemption(size);
 
     const createVaultIx = SystemProgram.createAccount({
-      fromPubkey: provider.wallet.publicKey,
+      fromPubkey: gameAuthority.publicKey, // game authority pays
       newAccountPubkey: vaultKeypair.publicKey,
       space: size,
       lamports,
       programId: TOKEN_PROGRAM_ID,
     });
+    // Initialize vault with game authority as the owner
     const initVaultIx = createInitializeAccountInstruction(
       vaultKeypair.publicKey,
       tokenMint,
-      provider.wallet.publicKey, // authority is the owner of this vault
+      gameAuthority.publicKey, // <--- gameAuthority is the vault owner
       TOKEN_PROGRAM_ID
     );
     const tx = new web3.Transaction().add(createVaultIx, initVaultIx);
-    await provider.sendAndConfirm(tx, [vaultKeypair]);
+    await provider.sendAndConfirm(tx, [gameAuthority, vaultKeypair]);
     agentVault = vaultKeypair.publicKey;
-    console.log("Agent vault created:", agentVault.toBase58());
+    console.log("Agent vault created (owned by gameAuthority):", agentVault.toBase58());
   });
 
   // ----------------------------------------------------------------
-  // 4) Create staker token accounts & mint tokens
+  // 5) Create staker token accounts & mint tokens
   // ----------------------------------------------------------------
   it("Create staker1 token account & mint tokens", async () => {
-    // We'll let staker1 = provider.wallet
     staker1TokenAccount = await createTokenAccountForUser(staker1.publicKey, tokenMint);
     console.log("Created staker1 token account:", staker1TokenAccount.toBase58());
 
     const MINT_AMOUNT = 1_000_000;
+    // Because gameAuthority is mint authority, it must sign
     await mintTo(
       provider.connection,
-      provider.wallet.payer,
+      gameAuthority,         // fee payer
       tokenMint,
       staker1TokenAccount,
-      provider.wallet.publicKey, // mint authority
+      gameAuthority.publicKey, // mint authority
       MINT_AMOUNT
     );
     console.log(
@@ -243,8 +245,9 @@ describe("Agent + Staking Full Test", () => {
   });
 
   it("Create staker2 token account & mint tokens", async () => {
-    // Also airdrop some SOL to staker2 so they can pay for transactions
-    await provider.connection.requestAirdrop(staker2.publicKey, 2e9); // 2 SOL
+    // Airdrop some SOL to staker2 for fees
+    const sig = await provider.connection.requestAirdrop(staker2.publicKey, 2e9);
+    await provider.connection.confirmTransaction(sig, "confirmed");
 
     staker2TokenAccount = await createTokenAccountForUser(staker2.publicKey, tokenMint);
     console.log("Created staker2 token account:", staker2TokenAccount.toBase58());
@@ -252,10 +255,10 @@ describe("Agent + Staking Full Test", () => {
     const MINT_AMOUNT_2 = 500_000;
     await mintTo(
       provider.connection,
-      provider.wallet.payer,
+      gameAuthority,
       tokenMint,
       staker2TokenAccount,
-      provider.wallet.publicKey, // mint authority
+      gameAuthority.publicKey, // mint authority
       MINT_AMOUNT_2
     );
     console.log(
@@ -265,10 +268,9 @@ describe("Agent + Staking Full Test", () => {
   });
 
   // ----------------------------------------------------------------
-  // 5) Staker1: InitializeStake => create stakeInfo, deposit
+  // 6) Staker1: InitializeStake => create stakeInfo, deposit
   // ----------------------------------------------------------------
   it("Staker1: InitializeStake on the agent", async () => {
-    // Derive stake info pda
     const [stakePda] = await PublicKey.findProgramAddress(
       [Buffer.from("stake"), agentPda.toBuffer(), staker1.publicKey.toBuffer()],
       program.programId
@@ -282,19 +284,18 @@ describe("Agent + Staking Full Test", () => {
         game: gamePda,
         stakeInfo: stakeInfoPdaStaker1,
         stakerSource: staker1TokenAccount,
-        agentVault: agentVault,
-        authority: staker1.publicKey, // staker1 must sign
+        agentVault: agentVault, // Owned by gameAuthority
+        authority: staker1.publicKey, // staker1 signs
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .signers([]) // staker1 is the default wallet, so no explicit signer needed if using anchor default
       .rpc();
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
     expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT);
     expect(stakeInfo.isInitialized).to.be.true;
     expect(stakeInfo.staker.toBase58()).to.equal(staker1.publicKey.toBase58());
-    console.log("Staker1: stakeInfo validated, first deposit success.");
+    console.log("Staker1 stakeInfo validated, first deposit success.");
   });
 
   it("Staker1: StakeTokens again (second deposit)", async () => {
@@ -341,7 +342,7 @@ describe("Agent + Staking Full Test", () => {
   });
 
   // ----------------------------------------------------------------
-  // 6) Staker1: Initiate a 2-hour Cooldown
+  // 7) Staker1: Initiate a 2-hour Cooldown
   // ----------------------------------------------------------------
   it("Staker1: Initiates a 2-hour cooldown", async () => {
     await program.methods
@@ -361,53 +362,46 @@ describe("Agent + Staking Full Test", () => {
   });
 
   // ----------------------------------------------------------------
-  // 7) Staker1: Partial Unstake EXACT 2000 tokens (by converting to shares)
+  // 8) Staker1: Partially Unstake EXACT 2000 tokens
   // ----------------------------------------------------------------
   it("Staker1: Partially unstakes exactly 2000 tokens", async () => {
-    // Read staker's token balance before
     const beforeBalance = await getTokenBalance(staker1TokenAccount);
 
-    // Convert "2000 tokens" -> shares
-    const sharesNeeded = await computeSharesForExactUnstake(PARTIAL_UNSTAKE_TOKENS, agentPda);
+    const sharesNeeded = await computeSharesForExactUnstake(PARTIAL_UNSTAKE_TOKENS);
     console.log("Shares needed to unstake EXACT 2000 tokens:", sharesNeeded);
     expect(sharesNeeded).to.be.gt(0);
 
-    // Attempt partial unstake by passing 'sharesNeeded'
+    // We must sign with BOTH staker1 (for stake_info) and gameAuthority (vault owner)
     await program.methods
       .unstakeTokens(new BN(sharesNeeded))
       .accounts({
         agent: agentPda,
         game: gamePda,
         stakeInfo: stakeInfoPdaStaker1,
-        agentVault: agentVault,
+        agentVault: agentVault, 
         stakerDestination: staker1TokenAccount,
-        authority: staker1.publicKey,
+        authority: staker1.publicKey,      // staker
+        gameAuthority: gameAuthority.publicKey, // vault owner
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
+      .signers([staker1.payer, gameAuthority]) 
       .rpc();
 
-    // Read staker's token balance after
     const afterBalance = await getTokenBalance(staker1TokenAccount);
     const diff = afterBalance - beforeBalance;
-    // Because we calculated the correct shares, we should get ~2000 tokens exactly
     console.log(`Staker1 partial unstake => gained ${diff} tokens`);
     expect(diff).to.equal(PARTIAL_UNSTAKE_TOKENS);
-
-    const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-    console.log("Staker1: stakeInfo after partial unstake:", stakeInfo);
   });
 
   // ----------------------------------------------------------------
-  // 8) Staker1: Fully Unstake leftover
+  // 9) Staker1: Fully Unstake leftover
   // ----------------------------------------------------------------
   it("Staker1: Fully unstakes leftover", async () => {
-    // Check the stakeInfo to see what's left
     const stakeInfoBefore = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
     const leftoverShares = Number(stakeInfoBefore.shares);
     console.log("Leftover shares for staker1:", leftoverShares);
 
-    // Check staker's balance before
     const beforeBalance = await getTokenBalance(staker1TokenAccount);
 
     await program.methods
@@ -418,13 +412,15 @@ describe("Agent + Staking Full Test", () => {
         stakeInfo: stakeInfoPdaStaker1,
         agentVault: agentVault,
         stakerDestination: staker1TokenAccount,
-        authority: staker1.publicKey,
+        authority: staker1.publicKey, 
+        gameAuthority: gameAuthority.publicKey,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
+      // signers with staker + gameAuthority
+      .signers([staker1.payer, gameAuthority])
       .rpc();
 
-    // Check staker's balance after
     const afterBalance = await getTokenBalance(staker1TokenAccount);
     console.log("Balance before:", beforeBalance, "after:", afterBalance);
 
@@ -435,12 +431,11 @@ describe("Agent + Staking Full Test", () => {
   });
 
   // ----------------------------------------------------------------
-  // 9) Unauthorized user tries to unstake staker1 => fails
+  // 10) Unauthorized user tries to unstake staker1 => fails
   // ----------------------------------------------------------------
   it("Unauthorized user tries to partially unstake staker1 => fails", async () => {
     let failed = false;
 
-    // We'll just reuse stakeInfoPdaStaker1 but sign with staker2
     try {
       await program.methods
         .unstakeTokens(new BN(1000))
@@ -451,10 +446,11 @@ describe("Agent + Staking Full Test", () => {
           agentVault: agentVault,
           stakerDestination: staker2TokenAccount,
           authority: staker2.publicKey, // WRONG authority => should fail
+          gameAuthority: gameAuthority.publicKey,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
-        .signers([staker2]) // staker2 tries to do it
+        .signers([staker2, gameAuthority])
         .rpc();
     } catch (err: any) {
       console.log("Unauthorized unstake attempt failed as expected:", err.message);
@@ -464,10 +460,9 @@ describe("Agent + Staking Full Test", () => {
   });
 
   // ----------------------------------------------------------------
-  // 10) Staker2 scenario: Initialize & partial unstake
+  // 11) Staker2 scenario: Initialize & partial unstake
   // ----------------------------------------------------------------
   it("Staker2: InitializeStake on the same agent", async () => {
-    // Derive stake info pda for staker2
     const [stakePda2] = await PublicKey.findProgramAddress(
       [Buffer.from("stake"), agentPda.toBuffer(), staker2.publicKey.toBuffer()],
       program.programId
@@ -498,14 +493,10 @@ describe("Agent + Staking Full Test", () => {
   });
 
   it("Staker2: Partially unstakes EXACT 3000 tokens", async () => {
-    // Check staker2's balance before
-    const beforeBalance = await getTokenBalance(staker2TokenAccount);
-
-    // Convert 3000 tokens -> shares
     const tokenAmount = 3000;
-    const sharesNeeded = await computeSharesForExactUnstake(tokenAmount, agentPda);
-    console.log("Shares needed for staker2 to unstake 3000 tokens:", sharesNeeded);
+    const sharesNeeded = await computeSharesForExactUnstake(tokenAmount);
 
+    const beforeBalance = await getTokenBalance(staker2TokenAccount);
     await program.methods
       .unstakeTokens(new BN(sharesNeeded))
       .accounts({
@@ -515,10 +506,11 @@ describe("Agent + Staking Full Test", () => {
         agentVault: agentVault,
         stakerDestination: staker2TokenAccount,
         authority: staker2.publicKey,
+        gameAuthority: gameAuthority.publicKey,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .signers([staker2])
+      .signers([staker2, gameAuthority])
       .rpc();
 
     const afterBalance = await getTokenBalance(staker2TokenAccount);
@@ -528,13 +520,11 @@ describe("Agent + Staking Full Test", () => {
   });
 
   it("Staker2: Fully unstakes leftover", async () => {
-    // Check leftover shares
     const stakeInfo2Before = await program.account.stakeInfo.fetch(stakeInfoPdaStaker2);
-    const leftover = Number(stakeInfo2Before.shares);
+    const leftoverShares = Number(stakeInfo2Before.shares);
 
-    // Unstake them
     await program.methods
-      .unstakeTokens(new BN(leftover))
+      .unstakeTokens(new BN(leftoverShares))
       .accounts({
         agent: agentPda,
         game: gamePda,
@@ -542,13 +532,13 @@ describe("Agent + Staking Full Test", () => {
         agentVault: agentVault,
         stakerDestination: staker2TokenAccount,
         authority: staker2.publicKey,
+        gameAuthority: gameAuthority.publicKey,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .signers([staker2])
+      .signers([staker2, gameAuthority])
       .rpc();
 
-    // Confirm zeroed out
     const stakeInfo2After = await program.account.stakeInfo.fetch(stakeInfoPdaStaker2);
     expect(Number(stakeInfo2After.shares)).to.equal(0);
     expect(Number(stakeInfo2After.amount)).to.equal(0);
