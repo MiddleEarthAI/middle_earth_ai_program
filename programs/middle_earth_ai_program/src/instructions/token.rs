@@ -5,6 +5,7 @@ use crate::error::GameError;
 
 pub const DAILY_REWARD_TOKENS: u64 = 500_000;
 pub const ONE_HOUR: i64 = 3600;
+pub const TWO_HOURS: i64 = 7200; // 2 hours in seconds
 pub const REWARD_CLAIM_COOLDOWN: i64 = 86400;
 
 /// Update the total_stake_accounts vector in the Game account
@@ -96,7 +97,7 @@ pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> R
     // Update global total stake
     add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
 
-    // Set cooldown
+    // Set cooldown to 1 hour initially
     let now = Clock::get()?.unix_timestamp;
     stake_info.cooldown_ends_at = now + ONE_HOUR;
 
@@ -112,6 +113,7 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
     let stake_info = &mut ctx.accounts.stake_info;
     require!(stake_info.is_initialized, GameError::NotEnoughTokens);
 
+    // Transfer tokens from staker -> agent vault
     let cpi_ctx = CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         token::Transfer {
@@ -159,6 +161,7 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
 
     add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
 
+    // Reset cooldown to 1 hour on each new stake
     let now = Clock::get()?.unix_timestamp;
     stake_info.cooldown_ends_at = now + ONE_HOUR;
 
@@ -178,10 +181,10 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     );
 
     let now = Clock::get()?.unix_timestamp;
-    // require!(
-    //     now >= stake_info.cooldown_ends_at,
-    //     GameError::CooldownNotOver
-    // );
+    require!(
+        now >= stake_info.cooldown_ends_at,
+        GameError::CooldownNotOver
+    );
 
     // Borrow the vault data once
     let vault_balance = {
@@ -190,7 +193,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         vault_account.amount
     };
 
-    let total_shares = ctx.accounts.agent.total_shares; 
+    let total_shares = ctx.accounts.agent.total_shares; // u128
 
     // Calculate the withdraw amount proportionally
     let withdraw_amount = u128::from(shares_to_redeem)
@@ -198,8 +201,6 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         .ok_or(GameError::NotEnoughTokens)?
         .checked_div(total_shares)
         .ok_or(GameError::NotEnoughTokens)?;
-
-    
 
     // Update agent's total_shares
     ctx.accounts.agent.total_shares = ctx
@@ -230,18 +231,40 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     let cpi_accounts = Transfer {
         from: ctx.accounts.agent_vault.to_account_info(),
         to: ctx.accounts.staker_destination.to_account_info(),
-        authority: ctx.accounts.authority.to_account_info(), // The staker or agent is directly signing
+        authority: ctx.accounts.authority.to_account_info(),
     };
 
-    let cpi_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
-        cpi_accounts,
-    );
-
+    let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
     token::transfer(cpi_ctx, withdraw_amount as u64)?;
 
-    // Debug Log after Transfer
     msg!("UnstakeTokens: Transferred {} tokens from agent_vault to staker_destination", withdraw_amount);
+
+    Ok(())
+}
+
+/// --------------------------------------------
+/// INITIATE COOLDOWN
+/// --------------------------------------------
+pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
+    let stake_info = &mut ctx.accounts.stake_info;
+    require!(stake_info.is_initialized, GameError::NotEnoughTokens);
+
+    let now = Clock::get()?.unix_timestamp;
+
+    // If there's already a future cooldown, throw an error.
+    require!(
+        now >= stake_info.cooldown_ends_at,
+        GameError::CooldownAlreadyActive
+    );
+
+    // Set new cooldown for 2 hours
+    stake_info.cooldown_ends_at = now + TWO_HOURS;
+
+    // Optionally emit an event
+    emit!(CooldownInitiated {
+        stake_info: stake_info.key(),
+        cooldown_ends_at: stake_info.cooldown_ends_at,
+    });
 
     Ok(())
 }
@@ -249,8 +272,6 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
 /// --------------------------------------------
 /// CLAIM REWARDS
 /// --------------------------------------------
-
-// total_rewards = (amount_staked / total_token_in_supply) * (time_elapsed / 86400) * daily_reward_tokens
 pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
     let REWARD_RATE_PER_SECOND: u64 = DAILY_REWARD_TOKENS / 86400; 
@@ -273,45 +294,44 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let total_shares = ctx.accounts.agent.total_shares as f64;
     let share_proportion = stake_shares / total_shares;
 
-    // Calculate the rewards based on time elapsed and share proportion
-    let user_reward_float =
-        (time_elapsed as f64) * (REWARD_RATE_PER_SECOND as f64) * share_proportion;
+    // Calculate the rewards
+    let user_reward_float = (time_elapsed as f64) * (REWARD_RATE_PER_SECOND as f64) * share_proportion;
     let user_reward = user_reward_float.floor() as u64;
 
     // Borrow the rewards vault once
-    let _rewards_balance = {
-        let rewards_data = ctx.accounts.rewards_vault.try_borrow_data()?;
-        let rewards_account = TokenAccount::try_deserialize(&mut &rewards_data[..])?;
-        rewards_account.amount
-    };
+    let rewards_data = ctx.accounts.rewards_vault.try_borrow_data()?;
+    let mut rewards_slice: &[u8] = &rewards_data;
+    let rewards_vault_account = TokenAccount::try_deserialize(&mut rewards_slice)?;
+    require!(
+        rewards_vault_account.amount >= user_reward,
+        GameError::NotEnoughTokens
+    );
 
-    // Transfer rewards to the staker
-    let cpi_accounts = Transfer {
-        from: ctx.accounts.rewards_vault.to_account_info(),
-        to: ctx.accounts.staker_destination.to_account_info(),
-        authority: ctx.accounts.rewards_authority.clone(),
-    };
-
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+    // Transfer rewards
+    let cpi_ctx = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        Transfer {
+            from: ctx.accounts.rewards_vault.to_account_info(),
+            to: ctx.accounts.staker_destination.to_account_info(),
+            authority: ctx.accounts.rewards_authority.clone(),
+        },
+    );
     token::transfer(cpi_ctx, user_reward)?;
 
-    // Update stake_info
     stake_info.last_reward_timestamp = now;
 
     Ok(())
 }
 
-
+/// --------------------------------------------
+/// UPDATE DAILY REWARDS
+/// --------------------------------------------
 pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: u64) -> Result<()> {
-    // Only game authority can call this function
     let game = &mut ctx.accounts.game;
     require!(ctx.accounts.authority.key() == game.authority, GameError::Unauthorized);
 
-    // Update the daily reward
     game.daily_reward_tokens = new_daily_reward;
 
-    // Emit an event (optional)
     emit!(DailyRewardUpdated {
         new_daily_reward
     });
@@ -319,21 +339,18 @@ pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: 
     Ok(())
 }
 
-
 // -----------------------------------
 // ACCOUNTS STRUCTS
 // -----------------------------------
 
 #[derive(Accounts)]
 pub struct InitializeStake<'info> {
-    /// The agent this stake will be associated with
     #[account(mut, has_one = game, has_one = authority)]
     pub agent: Account<'info, Agent>,
 
     #[account(mut)]
     pub game: Account<'info, Game>,
 
-    /// Create the stake_info account (first deposit)
     #[account(
         init,
         payer = authority,
@@ -343,19 +360,16 @@ pub struct InitializeStake<'info> {
     )]
     pub stake_info: Account<'info, StakeInfo>,
 
-    /// CHECK: This is the staker's token account. 
-    /// We verify it's owned by the SPL token program externally.
+    /// CHECK: Staker's token account
     #[account(mut)]
     pub staker_source: AccountInfo<'info>,
 
-    /// CHECK: This is the agent's vault token account. 
-    /// We verify it's owned by the SPL token program externally.
+    /// CHECK: Agent's vault token account
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
-    // The staker who signs the transaction
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub authority: Signer<'info>, // Staker
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -369,26 +383,19 @@ pub struct StakeTokens<'info> {
     #[account(mut)]
     pub game: Account<'info, Game>,
 
-    #[account(
-        mut,
-        seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
-        bump
-    )]
+    #[account(mut, seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()], bump)]
     pub stake_info: Account<'info, StakeInfo>,
 
-    /// CHECK: This is the staker's token account. 
-    /// We verify it's owned by the SPL token program externally.
+    /// CHECK: Staker's token account
     #[account(mut)]
     pub staker_source: AccountInfo<'info>,
 
-    /// CHECK: This is the agent's vault token account. 
-    /// We verify it's owned by the SPL token program externally.
+    /// CHECK: Agent's vault token account
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
-    // The staker who signs the transaction
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub authority: Signer<'info>, // Staker
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -402,10 +409,14 @@ pub struct UnstakeTokens<'info> {
     #[account(mut)]
     pub game: Account<'info, Game>,
 
-    #[account(mut, seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()], bump)]
+    #[account(
+        mut,
+        seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
+        bump
+    )]
     pub stake_info: Account<'info, StakeInfo>,
 
-    /// CHECK: The agent's vault token account. 
+    /// CHECK: Agent's vault token account
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
@@ -413,13 +424,32 @@ pub struct UnstakeTokens<'info> {
     #[account(mut)]
     pub staker_destination: AccountInfo<'info>,
 
-    // The wallet (could be the agent or staker) that has authority over agent_vault
-    // For partial or full unstaking. This is the direct signer, like in battle code.
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub authority: Signer<'info>, // The staker or agent is directly signing
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct InitiateCooldown<'info> {
+    #[account(mut, has_one = game, has_one = authority)]
+    pub agent: Account<'info, Agent>,
+
+    #[account(mut)]
+    pub game: Account<'info, Game>,
+
+    #[account(
+        mut,
+        seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
+        bump
+    )]
+    pub stake_info: Account<'info, StakeInfo>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>, // The user who initiates cooldown
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -430,50 +460,52 @@ pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub game: Account<'info, Game>,
 
-    #[account(mut, seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()], bump)]
+    #[account(
+        mut,
+        seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
+        bump
+    )]
     pub stake_info: Account<'info, StakeInfo>,
 
-    /// CHECK: We'll manually deserialize the mint if needed
+    /// CHECK: We can manually deserialize mint if needed
     #[account()]
     pub mint: AccountInfo<'info>,
 
-    /// CHECK: The rewards vault from which reward tokens will be transferred.
+    /// CHECK: Rewards vault
     #[account(mut)]
     pub rewards_vault: AccountInfo<'info>,
 
-    /// CHECK: The authority over the rewards vault (signer).
-    // Must sign if we actually needed a separate key. 
-    // Or if the same user who owns the vault can sign, they'd pass the same signer here.
+    /// CHECK: Authority over the rewards vault
     #[account(mut)]
     pub rewards_authority: AccountInfo<'info>,
 
-    /// CHECK: The staker's token account to receive rewards.
+    /// CHECK: The staker's token account for rewards
     #[account(mut)]
     pub staker_destination: AccountInfo<'info>,
 
-    // The user with authority to claim
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub authority: Signer<'info>, // The staker
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
-
-
 
 #[derive(Accounts)]
 pub struct UpdateDailyRewards<'info> {
     #[account(mut, has_one = authority)]
     pub game: Account<'info, Game>,
 
-    /// The authority to update daily rewards (game authority)
     pub authority: Signer<'info>,
 }
 
-/// --------------------------------------------
-/// EVENTS (Optional)
-/// --------------------------------------------
+/// Optional events
 #[event]
 pub struct DailyRewardUpdated {
     pub new_daily_reward: u64,
+}
+
+#[event]
+pub struct CooldownInitiated {
+    pub stake_info: Pubkey,
+    pub cooldown_ends_at: i64,
 }

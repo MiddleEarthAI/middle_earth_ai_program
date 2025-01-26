@@ -83,4 +83,6 @@ pub enum GameError {
 
     #[msg("Insufficient rewards to complete this action.")]
     InsufficientRewards, // Added variant
+    #[msg("Cooldown is already active.")]
+    CooldownAlreadyActive
 }

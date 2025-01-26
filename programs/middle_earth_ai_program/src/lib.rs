@@ -8,7 +8,7 @@ pub mod state;
 pub mod instructions;
 pub mod utils;
 
-// Re-export TerrainType from the state module so it appears in the IDL.
+// Re-export TerrainType so it appears in the IDL.
 pub use state::terrain::TerrainType;
 
 declare_id!("FE7WJhRY55XjHcR22ryA3tHLq6fkDNgZBpbh25tto67Q");
@@ -25,32 +25,28 @@ pub mod middle_earth_ai_program {
     }
 
     pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> Result<()> {
-        instructions::token::initialize_stake(ctx, deposit_amount)
+        token::initialize_stake(ctx, deposit_amount)
     }
 
     pub fn end_game(ctx: Context<EndGame>) -> Result<()> {
         game::end_game(ctx)
     }
 
-    /// Combined function for agent registration.
-    /// This instruction both initializes an Agent account and registers it in the game’s agent list.
+    /// Registers a new Agent in the game (init + list registration).
     pub fn register_agent(
         ctx: Context<RegisterAgent>,
-        agent_id: u8, // single byte identifier
+        agent_id: u8,
         x: i32,
         y: i32,
         name: String,
     ) -> Result<()> {
         agent::register_agent(ctx, agent_id, x, y, name)
     }
-    
-    /// Marks an agent as dead.
-    /// **Access Control:** Only the agent's authority (or game authority) may call this function.
+
     pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
         agent::kill_agent(ctx)
     }
-    
-    // Update the move_agent function to accept a terrain parameter.
+
     pub fn move_agent(
         ctx: Context<MoveAgent>,
         new_x: i32,
@@ -60,7 +56,6 @@ pub mod middle_earth_ai_program {
         movement::move_agent(ctx, new_x, new_y, terrain)
     }
 
-    /// Resolves a battle with alliances by updating cooldowns for all allied agents.
     pub fn resolve_battle_agent_vs_alliance(
         ctx: Context<ResolveBattleAgentAlliance>,
         percent_lost: u8,
@@ -68,7 +63,7 @@ pub mod middle_earth_ai_program {
     ) -> Result<()> {
         battle::resolve_battle_agent_vs_alliance(ctx, percent_lost, agent_is_winner)
     }
-    
+
     pub fn resolve_battle_alliance_vs_alliance(
         ctx: Context<ResolveBattleAlliances>,
         percent_lost: u8,
@@ -77,11 +72,13 @@ pub mod middle_earth_ai_program {
         battle::resolve_battle_alliance_vs_alliance(ctx, percent_lost, alliance_a_wins)
     }
 
-    /// Resolves a simple battle (without alliances) by updating the winner's and loser's cooldowns.
-    pub fn resolve_battle_simple(ctx: Context<ResolveBattleSimple>, percent_loss: u8) -> Result<()> {
+    pub fn resolve_battle_simple(
+        ctx: Context<ResolveBattleSimple>,
+        percent_loss: u8
+    ) -> Result<()> {
         battle::resolve_battle_simple(ctx, percent_loss)
     }
-    
+
     pub fn form_alliance(ctx: Context<FormAlliance>) -> Result<()> {
         alliance::form_alliance(ctx)
     }
@@ -89,7 +86,6 @@ pub mod middle_earth_ai_program {
     pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
         alliance::break_alliance(ctx)
     }
-
 
     pub fn stake_tokens(ctx: Context<StakeTokens>, amount: u64) -> Result<()> {
         token::stake_tokens(ctx, amount)
@@ -103,12 +99,13 @@ pub mod middle_earth_ai_program {
         token::claim_staking_rewards(ctx)
     }
 
-    /// **Update Daily Rewards Function**
-    ///
-    /// Allows the game authority to update the daily rewards for staking.
-    /// **Access Control:** Only the game authority can call this function.
     pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: u64) -> Result<()> {
-        instructions::token::update_daily_rewards(ctx, new_daily_reward)
+        token::update_daily_rewards(ctx, new_daily_reward)
+    }
+
+    /// Allows a staker to initiate a 2-hour cooldown before unstaking.
+    pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
+        token::initiate_cooldown(ctx)
     }
 }
 
