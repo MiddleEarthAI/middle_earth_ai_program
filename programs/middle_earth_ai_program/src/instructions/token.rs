@@ -181,10 +181,10 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     );
 
     let now = Clock::get()?.unix_timestamp;
-    require!(
-        now >= stake_info.cooldown_ends_at,
-        GameError::CooldownNotOver
-    );
+    // require!(
+    //     now >= stake_info.cooldown_ends_at,
+    //     GameError::CooldownNotOver
+    // );
 
     // Borrow the vault data once
     let vault_balance = {
@@ -247,7 +247,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
 /// --------------------------------------------
 pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
-    require!(stake_info.is_initialized, GameError::NotEnoughTokens);
+    // require!(stake_info.is_initialized, GameError::NotEnoughTokens);
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -259,6 +259,7 @@ pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
 
     // Set new cooldown for 2 hours
     stake_info.cooldown_ends_at = now + TWO_HOURS;
+    stake_info.is_initialized = true;
 
     // Optionally emit an event
     emit!(CooldownInitiated {

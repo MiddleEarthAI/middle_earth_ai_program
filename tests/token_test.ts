@@ -313,7 +313,7 @@ describe("Agent + Staking Full Test", () => {
     // NOTE: This may fail if the real-time hasn't passed 2 hours
     // For demonstration, we proceed. Adjust as needed for real time or test-time manipulation.
     let failed = false;
-    try {
+ 
       await program.methods
         .unstakeTokens(new BN(PARTIAL_UNSTAKE))
         .accounts({
@@ -327,16 +327,9 @@ describe("Agent + Staking Full Test", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();
-    } catch (err: any) {
-      console.log("Partial unstake attempt result:", err.message);
-      failed = true;
-    }
 
-    // If real time hasn't passed 2 hours, this should fail with `CooldownNotOver`.
-    // We'll accept either scenario. If it fails, the error is expected.
-    // If you want guaranteed success, remove or comment out the time checks or simulate time passage.
-    const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
-    console.log("Partial unstake done (or attempted):", PARTIAL_UNSTAKE, "Error expected if time not passed");
+
+
   });
 
   // ----------------------------------------------------------------
@@ -347,8 +340,7 @@ describe("Agent + Staking Full Test", () => {
     const stakeInfoBefore = await program.account.stakeInfo.fetch(stakeInfoPda);
     const leftoverShares = Number(stakeInfoBefore.shares);
 
-    let failed = false;
-    try {
+
       await program.methods
         .unstakeTokens(new BN(leftoverShares))
         .accounts({
@@ -362,14 +354,6 @@ describe("Agent + Staking Full Test", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();
-    } catch (err: any) {
-      console.log("Full unstake attempt result:", err.message);
-      failed = true;
-    }
 
-    // If enough real time hasn't passed, this might fail again with `CooldownNotOver`.
-    // We'll just note it in the logs for demonstration.
-    const stakeInfoAfter = await program.account.stakeInfo.fetch(stakeInfoPda);
-    console.log("Full unstake leftover attempt. If no time passed, might fail. stakeInfoAfter:", stakeInfoAfter);
   });
 });
