@@ -358,7 +358,7 @@ pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: 
 
 #[derive(Accounts)]
 pub struct InitializeStake<'info> {
-    #[account(mut, has_one = game, has_one = authority)]
+    #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
 
     #[account(mut)]
@@ -390,7 +390,7 @@ pub struct InitializeStake<'info> {
 
 #[derive(Accounts)]
 pub struct StakeTokens<'info> {
-    #[account(mut, has_one = game, has_one = authority)]
+    #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
 
     #[account(mut)]
@@ -416,7 +416,7 @@ pub struct StakeTokens<'info> {
 
 #[derive(Accounts)]
 pub struct UnstakeTokens<'info> {
-    #[account(mut, has_one = game, has_one = authority)]
+    #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
 
     #[account(mut)]
@@ -446,7 +446,7 @@ pub struct UnstakeTokens<'info> {
 
 #[derive(Accounts)]
 pub struct InitiateCooldown<'info> {
-    #[account(mut, has_one = game, has_one = authority)]
+    #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
 
     #[account(mut)]
@@ -467,7 +467,7 @@ pub struct InitiateCooldown<'info> {
 
 #[derive(Accounts)]
 pub struct ClaimRewards<'info> {
-    #[account(mut, has_one = game, has_one = authority)]
+    #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
 
     #[account(mut)]
@@ -505,7 +505,7 @@ pub struct ClaimRewards<'info> {
 
 #[derive(Accounts)]
 pub struct UpdateDailyRewards<'info> {
-    #[account(mut, has_one = authority)]
+    #[account(mut)]
     pub game: Account<'info, Game>,
 
     pub authority: Signer<'info>,

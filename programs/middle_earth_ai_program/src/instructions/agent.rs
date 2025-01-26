@@ -88,7 +88,6 @@ pub struct RegisterAgent<'info> {
     // Access control: It also checks that the game is active.
     #[account(
         mut,
-        has_one = authority,
         constraint = game.is_active @ GameError::ReentrancyGuard
     )]
     pub game: Account<'info, Game>,
