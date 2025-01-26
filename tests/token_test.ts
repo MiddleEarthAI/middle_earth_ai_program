@@ -300,7 +300,6 @@ describe("Agent + Staking Full Test", () => {
       .rpc();
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
-    // expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT + SECOND_DEPOSIT - PARTIAL_UNSTAKE);
     console.log("Partial unstake done:", PARTIAL_UNSTAKE);
 
     // Verify token balances

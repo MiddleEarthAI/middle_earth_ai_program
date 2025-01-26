@@ -170,7 +170,6 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
 /// --------------------------------------------
 pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
-
     require!(stake_info.is_initialized, GameError::NotEnoughTokens);
     require!(shares_to_redeem > 0, GameError::InvalidAmount);
     require!(
@@ -191,7 +190,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         vault_account.amount
     };
 
-    let total_shares = ctx.accounts.agent.total_shares; // u128
+    let total_shares = ctx.accounts.agent.total_shares; 
 
     // Calculate the withdraw amount proportionally
     let withdraw_amount = u128::from(shares_to_redeem)
@@ -250,6 +249,8 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
 /// --------------------------------------------
 /// CLAIM REWARDS
 /// --------------------------------------------
+
+// total_rewards = (amount_staked / total_token_in_supply) * (time_elapsed / 86400) * daily_reward_tokens
 pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
     let REWARD_RATE_PER_SECOND: u64 = DAILY_REWARD_TOKENS / 86400; 
