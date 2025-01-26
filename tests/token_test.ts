@@ -309,51 +309,71 @@ describe("Agent + Staking Full Test", () => {
   // 7) Partial Unstake
   // ----------------------------------------------------------------
   it("Partially unstakes some tokens", async () => {
+    // Read staker's token balance before
+    const beforeBalance = await getTokenBalance(stakerTokenAccount);
+  
     // Attempt partial unstake
-    // NOTE: This may fail if the real-time hasn't passed 2 hours
-    // For demonstration, we proceed. Adjust as needed for real time or test-time manipulation.
-    let failed = false;
- 
-      await program.methods
-        .unstakeTokens(new BN(PARTIAL_UNSTAKE))
-        .accounts({
-          agent: agentPda,
-          game: gamePda,
-          stakeInfo: stakeInfoPda,
-          agentVault: agentVault,
-          stakerDestination: stakerTokenAccount,
-          authority: provider.wallet.publicKey,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .rpc();
-
-
-
+    await program.methods
+      .unstakeTokens(new BN(PARTIAL_UNSTAKE))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPda,
+        agentVault: agentVault,
+        stakerDestination: stakerTokenAccount,
+        authority: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+  
+    // Read staker's token balance after
+    const afterBalance = await getTokenBalance(stakerTokenAccount);
+  
+    // The difference should be exactly PARTIAL_UNSTAKE (if vault had enough)
+    expect(afterBalance - beforeBalance).to.equal(PARTIAL_UNSTAKE);
+  
+    // Also confirm stakeInfo amounts have decreased:
+    const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPda);
+    // Compare stakeInfo.amount or shares to your expected leftover
+    console.log("stakeInfo after partial unstake:", stakeInfo);
   });
+  
 
-  // ----------------------------------------------------------------
-  // 8) Fully Unstake the Rest
-  // ----------------------------------------------------------------
   it("Fully unstakes leftover", async () => {
-    // Attempt to fully unstake leftover shares
+    // Check the stakeInfo to see what's left
     const stakeInfoBefore = await program.account.stakeInfo.fetch(stakeInfoPda);
-    const leftoverShares = Number(stakeInfoBefore.shares);
-
-
-      await program.methods
-        .unstakeTokens(new BN(leftoverShares))
-        .accounts({
-          agent: agentPda,
-          game: gamePda,
-          stakeInfo: stakeInfoPda,
-          agentVault: agentVault,
-          stakerDestination: stakerTokenAccount,
-          authority: provider.wallet.publicKey,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .rpc();
-
+    const leftoverShares = Number(stakeInfoBefore.shares); 
+    console.log("Leftover shares:", leftoverShares);
+  
+    // Check staker's balance before
+    const beforeBalance = await getTokenBalance(stakerTokenAccount);
+  
+    await program.methods
+      .unstakeTokens(new BN(leftoverShares))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPda,
+        agentVault: agentVault,
+        stakerDestination: stakerTokenAccount,
+        authority: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+  
+    // Check staker's balance after
+    const afterBalance = await getTokenBalance(stakerTokenAccount);
+    console.log("Balance before:", beforeBalance, "after:", afterBalance);
+  
+    // You can also check how many tokens that leftoverShares should have yielded,
+    // but a simpler check is just verifying that stakeInfo is zeroed out:
+    const stakeInfoAfter = await program.account.stakeInfo.fetch(stakeInfoPda);
+    expect(Number(stakeInfoAfter.shares)).to.equal(0);
+    expect(Number(stakeInfoAfter.amount)).to.equal(0);
+  
+    // Optionally confirm you got the expected difference if you know the precise leftover tokens
   });
+  
 });
