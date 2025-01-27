@@ -308,7 +308,7 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     //     GameError::ClaimCooldown
     // );
 
-    let time_elapsed = now - stake_info.last_reward_timestamp;
+    let time_elapsed = now - stake_info.last_reward_timestamp + 1;
 
     // Calculate the user's share proportion
     let stake_shares = stake_info.shares as f64;

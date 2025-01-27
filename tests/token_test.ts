@@ -222,6 +222,49 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     console.log("Agent vault created:", agentVault.toBase58());
   });
 
+  it("Create a rewards vault + mint rewards to it", async () => {
+    const rewardsVaultKeypair = Keypair.generate();
+    const size = AccountLayout.span;
+    const lamports = await provider.connection.getMinimumBalanceForRentExemption(size);
+  
+    const createRewardsVaultIx = SystemProgram.createAccount({
+      fromPubkey: rewardsAuthority.publicKey,
+      newAccountPubkey: rewardsVaultKeypair.publicKey,
+      space: size,
+      lamports,
+      programId: TOKEN_PROGRAM_ID,
+    });
+    const initRewardsVaultIx = createInitializeAccountInstruction(
+      rewardsVaultKeypair.publicKey,
+      tokenMint,
+      rewardsAuthority.publicKey,
+      TOKEN_PROGRAM_ID
+    );
+    const tx = new web3.Transaction().add(createRewardsVaultIx, initRewardsVaultIx);
+    await provider.sendAndConfirm(tx, [rewardsAuthority, rewardsVaultKeypair]);
+    rewardsVault = rewardsVaultKeypair.publicKey;
+    console.log("Rewards vault created at:", rewardsVault.toBase58());
+  
+    // Mint a larger amount of reward tokens to that vault
+    const UPDATED_REWARD_AMOUNT = 10_000_000; // 10 tokens with 6 decimals
+    await mintTo(
+      provider.connection,
+      gameAuthority,            // Mint authority
+      tokenMint,                // Mint address
+      rewardsVault,             // Recipient rewards vault
+      gameAuthority.publicKey,  // Mint authority's public key
+      UPDATED_REWARD_AMOUNT     // Updated reward amount
+    );
+    console.log(
+      "Minted reward tokens into the rewards vault. Balance:",
+      await getTokenBalance(rewardsVault)
+    );
+  
+    // Verify the rewardsVault balance
+    const updatedRewardsVaultBal = await getTokenBalance(rewardsVault);
+    expect(updatedRewardsVaultBal).to.equal(UPDATED_REWARD_AMOUNT);
+    console.log(`Rewards Vault Balance after minting: ${updatedRewardsVaultBal} tokens`);
+  });
   // ----------------------------------------------------------------
   // 5) Create staker token accounts + mint
   // ----------------------------------------------------------------
@@ -300,7 +343,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       tokenMint,
       rewardsVault,
       gameAuthority.publicKey,
-      REWARD_AMOUNT
+      REWARD_AMOUNT * 100000
     );
     console.log(
       "Minted reward tokens into the rewards vault. Balance:",
@@ -429,6 +472,65 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     console.log("Staker1 partial unstake => gained:", diff);
     expect(diff).to.equal(PARTIAL_UNSTAKE_TOKENS);
   });
+
+
+  it("Succeeds in claiming rewards", async () => {
+    // To simulate cooldown, we need to manually adjust the stake_info's last_reward_timestamp
+    // For simplicity, let's assume that the cooldown has passed by modifying the stake_info directly.
+    // **Important**: Directly modifying account data is generally unsafe and not recommended.
+    // This is only for testing purposes. In production, you should have proper instructions to handle this.
+
+    // **Option 1: Implement a Test-Only Instruction to Set Timestamps**
+    // If you have a test-only instruction, use it here to set `last_reward_timestamp` to a past value.
+    // Example (Assuming you have such an instruction):
+    /*
+    await program.methods
+      .setLastRewardTimestamp(new BN(0))
+      .accounts({
+        stake_info: stakeInfoPdaStaker1,
+        authority: gameAuthority.publicKey,
+      })
+      .signers([gameAuthority])
+      .rpc();
+    */
+
+    // **Option 2: Temporarily Bypass Cooldown Checks**
+    // Modify the program to bypass cooldown checks in the test environment.
+    // This requires conditional compilation in your Rust program.
+
+    // **Proceeding with the Claim as if Cooldown is Met:**
+
+    // Ensure that the cooldown period is satisfied. You might need to advance the clock or use a test-only instruction.
+
+    const beforeBal = await getTokenBalance(staker1TokenAccount);
+    const rewardsVaultBal = await getTokenBalance(rewardsVault);
+
+    console.log("Rewards Vault Balance", rewardsVaultBal, " tokens");
+
+    await program.methods
+      .claimStakingRewards()
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPdaStaker1,
+        mint: tokenMint,
+        rewardsVault: rewardsVault,
+        rewardsAuthority: rewardsAuthority.publicKey,
+        stakerDestination: staker1TokenAccount,
+        authority: staker1.publicKey, // correct staker
+        gameAuthority: gameAuthority.publicKey, // gameAuthority signs
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([rewardsAuthority]) // Include rewardsAuthority as a signer
+      .rpc();
+
+    const afterBal = await getTokenBalance(staker1TokenAccount);
+    const diff = afterBal - beforeBal;
+    console.log(`Staker1 claimed rewards => gained ${diff} tokens in staker1TokenAccount.`);
+    expect(diff).to.be.gt(0); // Some positive reward
+  });
+
 
   // ----------------------------------------------------------------
   // 10) Fully Unstake leftover
@@ -604,59 +706,6 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     expect(failed).to.be.true;
   });
 
-  it("Succeeds in claiming rewards", async () => {
-    // To simulate cooldown, we need to manually adjust the stake_info's last_reward_timestamp
-    // For simplicity, let's assume that the cooldown has passed by modifying the stake_info directly.
-    // **Important**: Directly modifying account data is generally unsafe and not recommended.
-    // This is only for testing purposes. In production, you should have proper instructions to handle this.
-
-    // **Option 1: Implement a Test-Only Instruction to Set Timestamps**
-    // If you have a test-only instruction, use it here to set `last_reward_timestamp` to a past value.
-    // Example (Assuming you have such an instruction):
-    /*
-    await program.methods
-      .setLastRewardTimestamp(new BN(0))
-      .accounts({
-        stake_info: stakeInfoPdaStaker1,
-        authority: gameAuthority.publicKey,
-      })
-      .signers([gameAuthority])
-      .rpc();
-    */
-
-    // **Option 2: Temporarily Bypass Cooldown Checks**
-    // Modify the program to bypass cooldown checks in the test environment.
-    // This requires conditional compilation in your Rust program.
-
-    // **Proceeding with the Claim as if Cooldown is Met:**
-
-    // Ensure that the cooldown period is satisfied. You might need to advance the clock or use a test-only instruction.
-
-    const beforeBal = await getTokenBalance(staker1TokenAccount);
-
-    await program.methods
-      .claimStakingRewards()
-      .accounts({
-        agent: agentPda,
-        game: gamePda,
-        stakeInfo: stakeInfoPdaStaker1,
-        mint: tokenMint,
-        rewardsVault: rewardsVault,
-        rewardsAuthority: rewardsAuthority.publicKey,
-        stakerDestination: staker1TokenAccount,
-        authority: staker1.publicKey, // correct staker
-        gameAuthority: gameAuthority.publicKey, // gameAuthority signs
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([rewardsAuthority]) // Include rewardsAuthority as a signer
-      .rpc();
-
-    const afterBal = await getTokenBalance(staker1TokenAccount);
-    const diff = afterBal - beforeBal;
-    console.log(`Staker1 claimed rewards => gained ${diff} tokens in staker1TokenAccount.`);
-    expect(diff).to.be.gt(0); // Some positive reward
-  });
 
   // ----------------------------------------------------------------
   // 14) Update daily rewards
