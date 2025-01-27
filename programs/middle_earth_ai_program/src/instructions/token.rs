@@ -284,22 +284,30 @@ pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
 pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
     let REWARD_RATE_PER_SECOND: u64 = DAILY_REWARD_TOKENS / 86400;
+
+    // Ensure the stake is initialized
     require!(stake_info.is_initialized, GameError::NotEnoughTokens);
+
+    // Verify the staker is authorized
     require_keys_eq!(
         stake_info.staker,
         ctx.accounts.authority.key(),
         GameError::Unauthorized
     );
-    let now = Clock::get()?.unix_timestamp;
-    require!(
-        now >= stake_info.cooldown_ends_at,
-        GameError::CooldownNotOver
-    );
 
-    require!(
-        now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
-        GameError::ClaimCooldown
-    );
+    let now = Clock::get()?.unix_timestamp;
+
+    // Uncomment and adjust cooldown logic as needed
+    // require!(
+    //     now >= stake_info.cooldown_ends_at,
+    //     GameError::CooldownNotOver
+    // );
+
+    // require!(
+    //     now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
+    //     GameError::ClaimCooldown
+    // );
+
     let time_elapsed = now - stake_info.last_reward_timestamp;
 
     // Calculate the user's share proportion
@@ -311,28 +319,40 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let user_reward_float = (time_elapsed as f64) * (REWARD_RATE_PER_SECOND as f64) * share_proportion;
     let user_reward = user_reward_float.floor() as u64;
 
-    // Borrow the rewards vault once
-    let rewards_data = ctx.accounts.rewards_vault.try_borrow_data()?;
-    let mut rewards_slice: &[u8] = &rewards_data;
-    let rewards_vault_account = TokenAccount::try_deserialize(&mut rewards_slice)?;
-    require!(
-        rewards_vault_account.amount >= user_reward,
-        GameError::NotEnoughTokens
-    );
+    // Limit the scope of the borrow to prevent double borrowing
+    {
+        // Manual deserialization within its own block
+        let rewards_data = ctx.accounts.rewards_vault.try_borrow_data()?;
+        let mut rewards_slice: &[u8] = &rewards_data;
+        let rewards_vault_account = TokenAccount::try_deserialize(&mut rewards_slice)?;
+        require!(
+            rewards_vault_account.amount >= user_reward,
+            GameError::NotEnoughTokens
+        );
+    } // Borrow is dropped here
 
     // Transfer rewards - approved by rewards_authority
     let cpi_accounts = Transfer {
         from: ctx.accounts.rewards_vault.to_account_info(),
         to: ctx.accounts.staker_destination.to_account_info(),
-        authority: ctx.accounts.rewards_authority.to_account_info(), // Corrected to rewards_authority
+        authority: ctx.accounts.rewards_authority.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
     token::transfer(cpi_ctx, user_reward)?;
 
+    // Update the last reward timestamp
     stake_info.last_reward_timestamp = now;
+
+    // Optional: Emit an event for successful reward claim
+    // emit!(RewardClaimed {
+    //     staker: stake_info.staker,
+    //     amount: user_reward,
+    //     timestamp: now,
+    // });
 
     Ok(())
 }
+
 
 /// --------------------------------------------
 /// UPDATE DAILY REWARDS
