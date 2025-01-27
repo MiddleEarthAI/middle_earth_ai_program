@@ -320,15 +320,13 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         GameError::NotEnoughTokens
     );
 
-    // Transfer rewards
-    let cpi_ctx = CpiContext::new(
-        ctx.accounts.token_program.to_account_info(),
-        Transfer {
-            from: ctx.accounts.rewards_vault.to_account_info(),
-            to: ctx.accounts.staker_destination.to_account_info(),
-            authority: ctx.accounts.rewards_authority.clone(),
-        },
-    );
+    // Transfer rewards - approved by rewards_authority
+    let cpi_accounts = Transfer {
+        from: ctx.accounts.rewards_vault.to_account_info(),
+        to: ctx.accounts.staker_destination.to_account_info(),
+        authority: ctx.accounts.rewards_authority.to_account_info(), // Corrected to rewards_authority
+    };
+    let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
     token::transfer(cpi_ctx, user_reward)?;
 
     stake_info.last_reward_timestamp = now;
@@ -443,7 +441,7 @@ pub struct UnstakeTokens<'info> {
 
     /// The game authority, who owns the vault
     #[account(mut)]
-    pub game_authority: Signer<'info>,
+    pub game_authority: Signer<'info>, // Correctly defined
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -493,16 +491,17 @@ pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub rewards_vault: AccountInfo<'info>,
 
-    /// CHECK: Authority over the rewards vault
-    #[account(mut)]
-    pub rewards_authority: AccountInfo<'info>,
-
     /// CHECK: The staker's token account for rewards
     #[account(mut)]
     pub staker_destination: AccountInfo<'info>,
 
     #[account(mut)]
     pub authority: Signer<'info>, // The staker
+
+    /// CHECK: Rewards authority approves the transfer from rewards_vault
+    /// CHECK: Rewards authority is a trusted signer who controls the rewards_vault
+    #[account(mut, signer)]
+    pub rewards_authority: AccountInfo<'info>, // Correctly marked as signer with documentation
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
