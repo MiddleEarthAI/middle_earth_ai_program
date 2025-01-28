@@ -185,10 +185,10 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         GameError::Unauthorized
     );
     let now = Clock::get()?.unix_timestamp;
-    // require!(
-    //     now >= stake_info.cooldown_ends_at,
-    //     GameError::CooldownNotOver
-    // );
+    require!(
+        now >= stake_info.cooldown_ends_at,
+        GameError::CooldownNotOver
+    );
 
     // Borrow the vault data once
     let vault_balance = {
@@ -256,10 +256,10 @@ pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
 
     // If there's already a future cooldown, throw an error.
-    // require!(
-    //     now >= stake_info.cooldown_ends_at,
-    //     GameError::CooldownAlreadyActive
-    // );
+    require!(
+        now >= stake_info.cooldown_ends_at,
+        GameError::CooldownAlreadyActive
+    );
     require_keys_eq!(
         stake_info.staker,
         ctx.accounts.authority.key(),
@@ -298,15 +298,15 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
 
     // Uncomment and adjust cooldown logic as needed
-    // require!(
-    //     now >= stake_info.cooldown_ends_at,
-    //     GameError::CooldownNotOver
-    // );
+    require!(
+        now >= stake_info.cooldown_ends_at,
+        GameError::CooldownNotOver
+    );
 
-    // require!(
-    //     now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
-    //     GameError::ClaimCooldown
-    // );
+    require!(
+        now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
+        GameError::ClaimCooldown
+    );
 
     let time_elapsed = now - stake_info.last_reward_timestamp + 1;
 

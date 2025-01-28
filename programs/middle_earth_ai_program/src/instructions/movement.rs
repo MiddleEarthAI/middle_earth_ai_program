@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
-use crate::state::{Agent, Game, TerrainType}; // Import TerrainType from state directly.
+use crate::state::{Agent, Game, TerrainType};
 use crate::error::GameError;
-use crate::events::*; // Ensure AgentMoved event is defined
+use crate::events::*; 
 
 pub fn move_agent(
     ctx: Context<MoveAgent>,
@@ -28,7 +28,7 @@ pub fn move_agent(
     agent.last_move = now;
 
     // Apply terrain-based cooldown.
-    agent.apply_terrain_move_cooldown(terrain, now); // Removed the `?`
+    agent.apply_terrain_move_cooldown(terrain, now); 
 
     // Emit an event indicating the move.
     emit!(AgentMoved {
@@ -52,5 +52,5 @@ pub struct MoveAgent<'info> {
     pub agent: Account<'info, Agent>,
     pub game: Account<'info, Game>,
     #[account(mut)]
-    pub authority: Signer<'info>, // Now, authority is the game authority
+    pub authority: Signer<'info>, 
 }
