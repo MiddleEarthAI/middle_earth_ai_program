@@ -15,6 +15,7 @@ describe("Alliance Tests", () => {
 
   const initiatorAgentId = 1;
   const targetAgentId = 2;
+  const agent3Id = 3; // Added for Agent3
 
   const unauthorizedWallet = Keypair.generate();
 
@@ -47,7 +48,7 @@ describe("Alliance Tests", () => {
       console.log("Game initialization skipped or already done:", err.message);
     }
 
-    // Register initiator agent
+    // Register initiator agent (Agent1)
     const [initiatorPda] = await PublicKey.findProgramAddress(
       [Buffer.from("agent"), gamePda.toBuffer(), Uint8Array.of(initiatorAgentId)],
       program.programId
@@ -62,7 +63,7 @@ describe("Alliance Tests", () => {
       })
       .rpc();
 
-    // Register target agent
+    // Register target agent (Agent2)
     const [targetPda] = await PublicKey.findProgramAddress(
       [Buffer.from("agent"), gamePda.toBuffer(), Uint8Array.of(targetAgentId)],
       program.programId
@@ -76,6 +77,23 @@ describe("Alliance Tests", () => {
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .rpc();
+
+    // Register Agent3
+    const [agent3Pda] = await PublicKey.findProgramAddress(
+      [Buffer.from("agent"), gamePda.toBuffer(), Uint8Array.of(agent3Id)],
+      program.programId
+    );
+    await program.methods
+      .registerAgent(agent3Id, 15, 15, "Agent3")
+      .accounts({
+        game: gamePda,
+        agent: agent3Pda,
+        authority: provider.wallet.publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .rpc();
+
+    console.log("Agent3 registered at:", agent3Pda.toBase58());
   });
 
   describe("Form Alliance", () => {
@@ -129,7 +147,7 @@ describe("Alliance Tests", () => {
           .formAlliance()
           .accounts({
             initiator: initiatorPda,
-            targetAgent: initiatorPda,
+            targetAgent: initiatorPda, // Self-alliance
             game: gamePda,
             authority: provider.wallet.publicKey,
           })
@@ -159,7 +177,7 @@ describe("Alliance Tests", () => {
             initiator: initiatorPda,
             targetAgent: targetPda,
             game: gamePda,
-            authority: provider.wallet.publicKey,
+            authority: unauthorizedWallet.publicKey, // Unauthorized signer
           })
           .signers([unauthorizedWallet])
           .rpc();
@@ -168,6 +186,67 @@ describe("Alliance Tests", () => {
         reverted = true;
       }
       expect(reverted).to.be.true;
+    });
+
+    // New Test: Prevent forming a second alliance when already allied
+    it("Prevents an agent from forming a second alliance while already in one", async () => {
+      const [initiatorPda] = await PublicKey.findProgramAddress(
+        [Buffer.from("agent"), gamePda.toBuffer(), Uint8Array.of(initiatorAgentId)],
+        program.programId
+      );
+      const [targetPda] = await PublicKey.findProgramAddress(
+        [Buffer.from("agent"), gamePda.toBuffer(), Uint8Array.of(targetAgentId)],
+        program.programId
+      );
+      const [agent3Pda] = await PublicKey.findProgramAddress(
+        [Buffer.from("agent"), gamePda.toBuffer(), Uint8Array.of(agent3Id)],
+        program.programId
+      );
+
+      // Step 1: Form an initial alliance between Agent1 and Agent2
+      await program.methods
+        .formAlliance()
+        .accounts({
+          initiator: initiatorPda,
+          targetAgent: targetPda,
+          game: gamePda,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
+
+      // Fetch and verify the alliance
+      const initiatorAfterFirstAlliance = await getAgentAccountNamespace().fetch(initiatorPda);
+      const targetAfterFirstAlliance = await getAgentAccountNamespace().fetch(targetPda);
+
+      expect(initiatorAfterFirstAlliance.allianceWith.toBase58()).to.equal(targetPda.toBase58());
+      expect(targetAfterFirstAlliance.allianceWith.toBase58()).to.equal(initiatorPda.toBase58());
+
+      // Step 2: Attempt to form a second alliance between Agent1 and Agent3
+      let reverted = false;
+      try {
+        await program.methods
+          .formAlliance()
+          .accounts({
+            initiator: initiatorPda,
+            targetAgent: agent3Pda,
+            game: gamePda,
+            authority: provider.wallet.publicKey,
+          })
+          .rpc();
+      } catch (err: any) {
+        console.log("Attempting to form a second alliance failed as expected:", err.message);
+        reverted = true;
+      }
+
+      // Step 3: Verify that the transaction was reverted
+      expect(reverted).to.be.true;
+
+      // Step 4: Confirm that Agent1's alliance remains unchanged and Agent3 remains unaffiliated
+      const initiatorAfterSecondAttempt = await getAgentAccountNamespace().fetch(initiatorPda);
+      const agent3AfterAttempt = await getAgentAccountNamespace().fetch(agent3Pda);
+
+      expect(initiatorAfterSecondAttempt.allianceWith.toBase58()).to.equal(targetPda.toBase58());
+      expect(agent3AfterAttempt.allianceWith).to.be.null;
     });
   });
 
@@ -228,7 +307,7 @@ describe("Alliance Tests", () => {
             initiator: initiatorPda,
             targetAgent: targetPda,
             game: gamePda,
-            authority: unauthorizedWallet.publicKey,
+            authority: unauthorizedWallet.publicKey, // Unauthorized signer
           })
           .signers([unauthorizedWallet])
           .rpc();
