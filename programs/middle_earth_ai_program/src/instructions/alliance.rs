@@ -11,6 +11,8 @@ pub fn form_alliance(ctx: Context<FormAlliance>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     
     // Validate that the initiator can form a new alliance
+    require!(initiator.is_alive, GameError::AgentNotAlive);
+    require!(target.is_alive, GameError::AgentNotAlive);
     initiator.validate_alliance(now)?;
     
     // Prevent self-alliances.
