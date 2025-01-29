@@ -23,3 +23,4 @@ pub struct BattleResolved {
     pub loser_id: u8,
     pub transfer_amount: u64,
 }
+
