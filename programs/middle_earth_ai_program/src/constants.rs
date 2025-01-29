@@ -89,3 +89,5 @@ lazy_static! {
         set
     };
 }
+
+pub const COOLDOWN_SECS: i64 = 3600;

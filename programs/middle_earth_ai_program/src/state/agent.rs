@@ -87,4 +87,10 @@ impl Agent {
         require!(now >= self.last_alliance + ACTION_COOLDOWN_SECS, GameError::AllianceCooldown);
         Ok(())
     }
+    pub fn set_attack_cooldown(&mut self, now: i64) {
+        self.last_attack = now;
+        self.next_move_time = now + COOLDOWN_SECS;
+    }
+
+
 }

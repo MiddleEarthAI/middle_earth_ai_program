@@ -81,6 +81,14 @@ pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
     Ok(())
 }
 
+pub fn set_agent_cooldown(
+    ctx: Context<SetAgentCooldown>,
+    new_next_move_time: i64,
+) -> Result<()> {
+    ctx.accounts.agent.set_attack_cooldown( new_next_move_time);
+    Ok(())
+}
+
 #[derive(Accounts)]
 #[instruction(agent_id: u8, x: i32, y: i32, name: String)]
 pub struct RegisterAgent<'info> {
@@ -118,5 +126,14 @@ pub struct KillAgent<'info> {
     #[account(mut, has_one = authority)]
     pub agent: Account<'info, Agent>,
     /// The authority that can perform the kill. In many cases this should match agent.authority.
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct SetAgentCooldown<'info> {
+    #[account(mut, has_one = game)]
+    pub agent: Account<'info, Agent>,
+    pub game: Account<'info, Game>,
+    #[account(mut)]
     pub authority: Signer<'info>,
 }

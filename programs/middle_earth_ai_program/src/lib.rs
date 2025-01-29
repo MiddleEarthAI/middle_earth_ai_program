@@ -107,6 +107,20 @@ pub mod middle_earth_ai_program {
     pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
         token::initiate_cooldown(ctx)
     }
+       /// Starts a battle between an agent and an alliance.
+       pub fn start_battle_agent_vs_alliance(ctx: Context<StartBattleAgentVsAlliance>) -> Result<()> {
+        battle::start_battle_agent_vs_alliance(ctx)
+    }
+
+    /// Starts a battle between two alliances.
+    pub fn start_battle_alliance_vs_alliance(ctx: Context<StartBattleAlliances>) -> Result<()> {
+        battle::start_battle_alliance_vs_alliance(ctx)
+    }
+
+    pub fn start_battle_simple(ctx: Context<StartBattleSimple>) -> Result<()> {
+        battle::start_battle_simple(ctx)
+    }
+
 }
 
 #[derive(Accounts)]
