@@ -102,7 +102,7 @@ pub fn resolve_battle_agent_vs_alliance(
 
     // Ensure battle has started and cooldown has passed
     let battle_start = single_agent.battle_start_time.ok_or(GameError::BattleNotStarted)?;
-    require!(now >= battle_start + 3600, GameError::BattleNotReadyToResolve);
+    require!(now >= battle_start + 3500, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
     single_agent.validate_attack(now)?;

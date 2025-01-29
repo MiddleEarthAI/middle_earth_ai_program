@@ -1,4 +1,4 @@
-// test/battle.test.ts
+// tests/battle.test.ts
 
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
@@ -48,7 +48,11 @@ describe("Battle Contract Tests with Cooldowns", () => {
   // Helper: Derive an agent's PDA using seeds ["agent", gamePda, [agentId]].
   const deriveAgentPda = async (agentId: number): Promise<PublicKey> => {
     const [pda] = await PublicKey.findProgramAddress(
-      [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([agentId])],
+      [
+        Buffer.from("agent"),
+        gameId.toArrayLike(Buffer, "le", 8), // Ensure gameId is in little-endian
+        Buffer.from([agentId]),
+      ],
       program.programId
     );
     return pda;
@@ -59,14 +63,14 @@ describe("Battle Contract Tests with Cooldowns", () => {
   // --------------------
   before("Derive Game PDA and ensure game is initialized", async () => {
     [gamePda] = await PublicKey.findProgramAddress(
-      [Buffer.from("game"), gameId.toBuffer("le", 4)],
+      [Buffer.from("game"), gameId.toArrayLike(Buffer, "le", 8)],
       program.programId
     );
     console.log("Derived game PDA:", gamePda.toBase58());
 
     try {
       await program.methods
-        .initializeGame(gameId, 123) // Assuming initializeGame takes gameId and some other parameter
+        .initializeGame(gameId)
         .accounts({
           game: gamePda,
           authority: provider.wallet.publicKey,
@@ -144,9 +148,12 @@ describe("Battle Contract Tests with Cooldowns", () => {
           .accounts({
             game: gamePda,
             agent: pda,
-            authority: provider.wallet.publicKey,
+            authority: agentAuthorities[agentId].publicKey, // Updated to use agent authority
             systemProgram: SystemProgram.programId,
           })
+          .signers([
+            agentAuthorities[agentId],
+          ])
           .rpc();
         console.log(`Registered agent ${name} (ID ${agentId}).`);
       }
@@ -158,11 +165,11 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
     await registerAgent(allianceA.leader, 10, 10, "AllianceA_Leader");
     await registerAgent(allianceA.partner, 11, 11, "AllianceA_Partner");
-    await registerAgent(allianceB.leader, -10, -10, "AllianceB_Leader");
-    await registerAgent(allianceB.partner, -11, -11, "AllianceB_Partner");
+    await registerAgent(allianceB.leader, 12, 12, "AllianceB_Leader");
+    await registerAgent(allianceB.partner, 13, 13, "AllianceB_Partner");
 
-    await registerAgent(simpleBattle.winner, 5, 5, "SimpleBattleWinner");
-    await registerAgent(simpleBattle.loser, -5, -5, "SimpleBattleLoser");
+    await registerAgent(simpleBattle.winner, 20, 20, "SimpleBattleWinner");
+    await registerAgent(simpleBattle.loser, 21, 21, "SimpleBattleLoser");
   });
 
   // --------------------
@@ -225,7 +232,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
       // Call battle instruction with agent_is_winner = true and percent_lost = 30.
       await program.methods
-        .resolveBattleAgentVsAlliance(30, true)
+        .resolveBattleAgentVsAlliance(new BN(30), true)
         .accounts({
           singleAgent: singlePda,
           allianceLeader: leaderPda,
@@ -235,10 +242,10 @@ describe("Battle Contract Tests with Cooldowns", () => {
           allianceLeaderToken: tokenAccounts[allianceLeaderId],
           alliancePartnerToken: tokenAccounts[alliancePartnerId],
           // Pass dedicated agent authority public keys.
-          single_agent_authority: agentAuthorities[singleAgentId].publicKey,
-          alliance_leader_authority: agentAuthorities[allianceLeaderId].publicKey,
-          alliance_partner_authority: agentAuthorities[alliancePartnerId].publicKey,
-          token_program: TOKEN_PROGRAM_ID,
+          singleAgentAuthority: agentAuthorities[singleAgentId].publicKey,
+          allianceLeaderAuthority: agentAuthorities[allianceLeaderId].publicKey,
+          alliancePartnerAuthority: agentAuthorities[alliancePartnerId].publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
           authority: provider.wallet.publicKey,
         })
         .signers([
@@ -285,7 +292,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
       // Call battle instruction with agent_is_winner = false and percent_lost = 25.
       await program.methods
-        .resolveBattleAgentVsAlliance(25, false)
+        .resolveBattleAgentVsAlliance(new BN(25), false)
         .accounts({
           singleAgent: singlePda,
           allianceLeader: leaderPda,
@@ -294,10 +301,10 @@ describe("Battle Contract Tests with Cooldowns", () => {
           singleAgentToken: tokenAccounts[singleAgentId],
           allianceLeaderToken: tokenAccounts[allianceLeaderId],
           alliancePartnerToken: tokenAccounts[alliancePartnerId],
-          single_agent_authority: agentAuthorities[singleAgentId].publicKey,
-          alliance_leader_authority: agentAuthorities[allianceLeaderId].publicKey,
-          alliance_partner_authority: agentAuthorities[alliancePartnerId].publicKey,
-          token_program: TOKEN_PROGRAM_ID,
+          singleAgentAuthority: agentAuthorities[singleAgentId].publicKey,
+          allianceLeaderAuthority: agentAuthorities[allianceLeaderId].publicKey,
+          alliancePartnerAuthority: agentAuthorities[alliancePartnerId].publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
           authority: provider.wallet.publicKey,
         })
         .signers([
@@ -334,12 +341,12 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
       // Start the battle
       await program.methods
-        .startBattleAlliances()
+        .startBattleAllianceVsAlliance()
         .accounts({
-          leader_a: leaderAPda,
-          partner_a: partnerAPda,
-          leader_b: leaderBPda,
-          partner_b: partnerBPda,
+          leaderA: leaderAPda,
+          partnerA: partnerAPda,
+          leaderB: leaderBPda,
+          partnerB: partnerBPda,
           game: gamePda,
           authority: provider.wallet.publicKey,
         })
@@ -354,22 +361,22 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
       // Call battle instruction: alliance_a_wins = true, percent_lost = 20.
       await program.methods
-        .resolveBattleAlliances(20, true)
+        .resolveBattleAlliances(new BN(20), true)
         .accounts({
-          leader_a: leaderAPda,
-          partner_a: partnerAPda,
-          leader_b: leaderBPda,
-          partner_b: partnerBPda,
+          leaderA: leaderAPda,
+          partnerA: partnerAPda,
+          leaderB: leaderBPda,
+          partnerB: partnerBPda,
           game: gamePda,
-          leader_a_token: tokenAccounts[leaderAId],
-          partner_a_token: tokenAccounts[partnerAId],
-          leader_b_token: tokenAccounts[leaderBId],
-          partner_b_token: tokenAccounts[partnerBId],
-          leader_a_authority: agentAuthorities[leaderAId].publicKey,
-          partner_a_authority: agentAuthorities[partnerAId].publicKey,
-          leader_b_authority: agentAuthorities[leaderBId].publicKey,
-          partner_b_authority: agentAuthorities[partnerBId].publicKey,
-          token_program: TOKEN_PROGRAM_ID,
+          leaderAToken: tokenAccounts[leaderAId],
+          partnerAToken: tokenAccounts[partnerAId],
+          leaderBToken: tokenAccounts[leaderBId],
+          partnerBToken: tokenAccounts[partnerBId],
+          leaderAAuthority: agentAuthorities[leaderAId].publicKey,
+          partnerAAuthority: agentAuthorities[partnerAId].publicKey,
+          leaderBAuthority: agentAuthorities[leaderBId].publicKey,
+          partnerBAuthority: agentAuthorities[partnerBId].publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
           authority: provider.wallet.publicKey,
         })
         .signers([
@@ -409,12 +416,12 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
       // Start the battle
       await program.methods
-        .startBattleAlliances()
+        .startBattleAllianceVsAlliance()
         .accounts({
-          leader_a: leaderAPda,
-          partner_a: partnerAPda,
-          leader_b: leaderBPda,
-          partner_b: partnerBPda,
+          leaderA: leaderAPda,
+          partnerA: partnerAPda,
+          leaderB: leaderBPda,
+          partnerB: partnerBPda,
           game: gamePda,
           authority: provider.wallet.publicKey,
         })
@@ -429,22 +436,22 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
       // Call battle instruction: alliance_a_wins = false, percent_lost = 15.
       await program.methods
-        .resolveBattleAlliances(15, false)
+        .resolveBattleAlliances(new BN(15), false)
         .accounts({
-          leader_a: leaderAPda,
-          partner_a: partnerAPda,
-          leader_b: leaderBPda,
-          partner_b: partnerBPda,
+          leaderA: leaderAPda,
+          partnerA: partnerAPda,
+          leaderB: leaderBPda,
+          partnerB: partnerBPda,
           game: gamePda,
-          leader_a_token: tokenAccounts[leaderAId],
-          partner_a_token: tokenAccounts[partnerAId],
-          leader_b_token: tokenAccounts[leaderBId],
-          partner_b_token: tokenAccounts[partnerBId],
-          leader_a_authority: agentAuthorities[leaderAId].publicKey,
-          partner_a_authority: agentAuthorities[partnerAId].publicKey,
-          leader_b_authority: agentAuthorities[leaderBId].publicKey,
-          partner_b_authority: agentAuthorities[partnerBId].publicKey,
-          token_program: TOKEN_PROGRAM_ID,
+          leaderAToken: tokenAccounts[leaderAId],
+          partnerAToken: tokenAccounts[partnerAId],
+          leaderBToken: tokenAccounts[leaderBId],
+          partnerBToken: tokenAccounts[partnerBId],
+          leaderAAuthority: agentAuthorities[leaderAId].publicKey,
+          partnerAAuthority: agentAuthorities[partnerAId].publicKey,
+          leaderBAuthority: agentAuthorities[leaderBId].publicKey,
+          partnerBAuthority: agentAuthorities[partnerBId].publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
           authority: provider.wallet.publicKey,
         })
         .signers([
@@ -495,16 +502,15 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
       // Call simple battle instruction: percent_lost = 20.
       await program.methods
-        .resolveBattleSimple(20)
+        .resolveBattleSimple(new BN(20))
         .accounts({
           winner: winnerPda,
           loser: loserPda,
           game: gamePda,
-          winner_token: tokenAccounts[winnerId],
-          loser_token: tokenAccounts[loserId],
-          // For a simple battle, the loser authority must sign.
-          loser_authority: agentAuthorities[loserId].publicKey,
-          token_program: TOKEN_PROGRAM_ID,
+          winnerToken: tokenAccounts[winnerId], // Changed to camelCase
+          loserToken: tokenAccounts[loserId],   // Changed to camelCase
+          loserAuthority: agentAuthorities[loserId].publicKey, // Changed to camelCase
+          tokenProgram: TOKEN_PROGRAM_ID, // Changed to camelCase
           authority: provider.wallet.publicKey,
         })
         .signers([
@@ -545,16 +551,16 @@ describe("Battle Contract Tests with Cooldowns", () => {
       let failed = false;
       try {
         await program.methods
-          .resolveBattleSimple(20)
+          .resolveBattleSimple(new BN(20))
           .accounts({
             winner: winnerPda,
             loser: loserPda,
             game: gamePda,
-            winner_token: tokenAccounts[winnerId],
-            loser_token: tokenAccounts[loserId],
-            loser_authority: agentAuthorities[loserId].publicKey,
-            token_program: TOKEN_PROGRAM_ID,
-            authority: unauthorizedWallet.publicKey,
+            winnerToken: tokenAccounts[winnerId], // Changed to camelCase
+            loserToken: tokenAccounts[loserId],   // Changed to camelCase
+            loserAuthority: agentAuthorities[loserId].publicKey, // Changed to camelCase
+            tokenProgram: TOKEN_PROGRAM_ID, // Changed to camelCase
+            authority: unauthorizedWallet.publicKey, // Changed to camelCase
           })
           .signers([
             unauthorizedWallet
@@ -588,15 +594,15 @@ describe("Battle Contract Tests with Cooldowns", () => {
       let failed = false;
       try {
         await program.methods
-          .resolveBattleSimple(20)
+          .resolveBattleSimple(new BN(20))
           .accounts({
             winner: winnerPda,
             loser: loserPda,
             game: gamePda,
-            winner_token: tokenAccounts[winnerId],
-            loser_token: tokenAccounts[loserId],
-            loser_authority: agentAuthorities[loserId].publicKey,
-            token_program: TOKEN_PROGRAM_ID,
+            winnerToken: tokenAccounts[winnerId], // Changed to camelCase
+            loserToken: tokenAccounts[loserId],   // Changed to camelCase
+            loserAuthority: agentAuthorities[loserId].publicKey, // Changed to camelCase
+            tokenProgram: TOKEN_PROGRAM_ID, // Changed to camelCase
             authority: provider.wallet.publicKey,
           })
           .signers([
@@ -635,15 +641,15 @@ describe("Battle Contract Tests with Cooldowns", () => {
       let failed = false;
       try {
         await program.methods
-          .resolveBattleSimple(20)
+          .resolveBattleSimple(new BN(20))
           .accounts({
             winner: winnerPda,
             loser: loserPda,
             game: gamePda,
-            winner_token: tokenAccounts[winnerId],
-            loser_token: tokenAccounts[loserId],
-            loser_authority: agentAuthorities[loserId].publicKey,
-            token_program: TOKEN_PROGRAM_ID,
+            winnerToken: tokenAccounts[winnerId], // Changed to camelCase
+            loserToken: tokenAccounts[loserId],   // Changed to camelCase
+            loserAuthority: agentAuthorities[loserId].publicKey, // Changed to camelCase
+            tokenProgram: TOKEN_PROGRAM_ID, // Changed to camelCase
             authority: provider.wallet.publicKey,
           })
           .signers([
