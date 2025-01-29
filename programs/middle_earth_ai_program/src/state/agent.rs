@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::error::GameError;
 use crate::state::TerrainType;
-// Example enumeration for different terrain types
 
 // Enumeration for causes of death
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq)]
@@ -49,9 +48,12 @@ pub struct Agent {
     pub next_move_time: i64,
     pub last_alliance_agent: Option<Pubkey>, // Pubkey of the last allied agent
     pub last_alliance_broken: i64,  
+    pub battle_start_time: Option<i64>, // Store battle start time (None if not in battle)
+
     // PDA-related info
     pub vault_bump: u8,                // Bump seed for the PDA representing the agent's vault
 }
+
 // Helper methods on the Agent data structure
 impl Agent {
     pub fn validate_movement(&self, now: i64) -> Result<()> {
@@ -60,27 +62,29 @@ impl Agent {
         Ok(())
     }
 
-    pub fn apply_terrain_move_cooldown(&mut self, terrain: TerrainType, now: i64) {
+    pub fn apply_terrain_move_cooldown(&mut self, terrain: TerrainType, now: i64) -> Result<()> {
         let added_cooldown = match terrain {
-            TerrainType::Plain => (1 * 3600) - 100 ,      
-            TerrainType::River => (2 * 3600) - 300,      
-            TerrainType::Mountain => (3 * 3600) - 600,   
+            TerrainType::Plain => 3600,       // 1 hour in seconds
+            TerrainType::River => 7200,       // 2 hours
+            TerrainType::Mountain => 10800,   // 3 hours
+            // Add more terrain types as needed
         };
         self.next_move_time = now + added_cooldown;
+        Ok(())
     }
 
     pub fn validate_attack(&self, now: i64) -> Result<()> {
-        // require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
+        require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
         Ok(())
     }
 
     pub fn validate_ignore(&self, now: i64) -> Result<()> {
-        // require!(now >= self.last_ignore + ACTION_COOLDOWN_SECS, GameError::IgnoreCooldown);
+        require!(now >= self.last_ignore + ACTION_COOLDOWN_SECS, GameError::IgnoreCooldown);
         Ok(())
     }
 
     pub fn validate_alliance(&self, now: i64) -> Result<()> {
-        // require!(now >= self.last_alliance + ACTION_COOLDOWN_SECS, GameError::AllianceCooldown);
+        require!(now >= self.last_alliance + ACTION_COOLDOWN_SECS, GameError::AllianceCooldown);
         Ok(())
     }
 }

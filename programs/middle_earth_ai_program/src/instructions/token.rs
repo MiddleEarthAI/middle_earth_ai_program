@@ -60,7 +60,7 @@ pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> R
         token::Transfer {
             from: ctx.accounts.staker_source.to_account_info(),
             to: ctx.accounts.agent_vault.to_account_info(),
-            authority: ctx.accounts.authority.to_account_info(), // staker signs
+            authority: ctx.accounts.authority.to_account_info(), 
         },
     );
     token::transfer(cpi_ctx, deposit_amount)?;

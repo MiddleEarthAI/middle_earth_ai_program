@@ -276,6 +276,8 @@ describe("Battle Contract Tests", () => {
       const partnerB = await deriveAgentPda(partnerBId);
 
       const initLeaderB = await getAccount(connection, tokenAccounts[leaderBId]);
+      const initPartnerB = await getAccount(connection, tokenAccounts[partnerBId]);
+
       console.log("Before (Alliance A wins): B.Leader balance =", Number(initLeaderB.amount));
 
       // Call battle instruction: alliance_a_wins = true, percent_lost = 20.
@@ -307,8 +309,11 @@ describe("Battle Contract Tests", () => {
         .rpc();
 
       const finalLeaderB = await getAccount(connection, tokenAccounts[leaderBId]);
+      const partnerBacc = await getAccount(connection, tokenAccounts[partnerBId]);
+
       console.log("After (Alliance A wins): B.Leader balance =", Number(finalLeaderB.amount));
       expect(Number(finalLeaderB.amount)).to.be.below(Number(initLeaderB.amount));
+      expect(Number(partnerBacc.amount)).to.be.below(Number(initPartnerB.amount));
     });
   });
 
