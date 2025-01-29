@@ -2,6 +2,8 @@
 
 use anchor_lang::prelude::*;
 
+
+
 #[error_code]
 pub enum GameError {
     #[msg("Agent is not alive.")]
@@ -85,4 +87,12 @@ pub enum GameError {
     InsufficientRewards, // Added variant
     #[msg("Cooldown is already active.")]
     CooldownAlreadyActive
+    ,
+
+    #[msg("Battle has not started yet ")]
+     BattleNotStarted,
+#[msg("Battle has already started ")]
+     BattleAlreadyStarted, 
+     #[msg("Battle not ready to resolve")]
+     BattleNotReadyToResolve
 }

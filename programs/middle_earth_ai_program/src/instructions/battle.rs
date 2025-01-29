@@ -4,14 +4,85 @@ use anchor_spl::token::{transfer, Transfer, Token};
 use spl_token::state::Account as SplTokenAccount; // Import SPL Token Account
 use crate::state::{Agent, Game};
 use crate::error::GameError;
-use crate::events::*; // Ensure BattleResolved event is defined
+use crate::events::*; // Ensure BattleStarted and BattleResolved events are defined
+
+/// Starts a battle between an agent and an alliance.
+/// Records the start time to enforce a cooldown before resolution.
+pub fn start_battle_agent_vs_alliance(
+    ctx: Context<StartBattleAgentVsAlliance>,
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let attacker = &mut ctx.accounts.attacker;
+    let alliance_leader = &mut ctx.accounts.alliance_leader;
+    let alliance_partner = &mut ctx.accounts.alliance_partner;
+
+    // Ensure all agents are alive
+    require!(attacker.is_alive, GameError::AgentNotAlive);
+    require!(alliance_leader.is_alive, GameError::AgentNotAlive);
+    require!(alliance_partner.is_alive, GameError::AgentNotAlive);
+
+    // Ensure none of the agents are already in a battle
+    require!(attacker.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+    require!(alliance_leader.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+    require!(alliance_partner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+
+    // Record battle start time
+    attacker.battle_start_time = Some(now);
+    alliance_leader.battle_start_time = Some(now);
+    alliance_partner.battle_start_time = Some(now);
+
+    // emit!(BattleStarted {
+    //     attacker_id: attacker.id,
+    //     alliance_leader_id: alliance_leader.id,
+    //     alliance_partner_id: alliance_partner.id,
+    //     start_time: now,
+    // });
+
+    Ok(())
+}
+
+/// Starts a battle between two alliances.
+/// Records the start time to enforce a cooldown before resolution.
+pub fn start_battle_alliance_vs_alliance(
+    ctx: Context<StartBattleAlliances>,
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let leader_a = &mut ctx.accounts.leader_a;
+    let partner_a = &mut ctx.accounts.partner_a;
+    let leader_b = &mut ctx.accounts.leader_b;
+    let partner_b = &mut ctx.accounts.partner_b;
+
+    // Ensure all agents are alive
+    require!(leader_a.is_alive, GameError::AgentNotAlive);
+    require!(partner_a.is_alive, GameError::AgentNotAlive);
+    require!(leader_b.is_alive, GameError::AgentNotAlive);
+    require!(partner_b.is_alive, GameError::AgentNotAlive);
+
+    // Ensure none of the agents are already in a battle
+    require!(leader_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+    require!(partner_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+    require!(leader_b.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+    require!(partner_b.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+
+    // Record battle start time
+    leader_a.battle_start_time = Some(now);
+    partner_a.battle_start_time = Some(now);
+    leader_b.battle_start_time = Some(now);
+    partner_b.battle_start_time = Some(now);
+
+    // emit!(BattleStarted {
+    //     alliance_a_leader_id: leader_a.id,
+    //     alliance_a_partner_id: partner_a.id,
+    //     alliance_b_leader_id: leader_b.id,
+    //     alliance_b_partner_id: partner_b.id,
+    //     start_time: now,
+    // });
+
+    Ok(())
+}
 
 /// Resolves a battle with alliance support with token transfers. 
-/// It updates cooldown timers and transfers tokens as follows:
-/// - Computes the total lost amount as `percent_lost`% of the sum of the loser's and loser partner's token balances.
-/// - Deducts from each losing account proportionally.
-/// - Distributes the total lost amount among the winners (winner and winner partner) in proportion
-///   to their token balances.
+/// Ensures that at least 1 hour has passed since battle started.
 pub fn resolve_battle_agent_vs_alliance(
     ctx: Context<ResolveBattleAgentAlliance>,
     percent_lost: u8,
@@ -29,11 +100,20 @@ pub fn resolve_battle_agent_vs_alliance(
     let alliance_leader = &mut ctx.accounts.alliance_leader;
     let alliance_partner = &mut ctx.accounts.alliance_partner;
 
+    // Ensure battle has started and cooldown has passed
+    let battle_start = single_agent.battle_start_time.ok_or(GameError::BattleNotStarted)?;
+    require!(now >= battle_start + 3600, GameError::BattleNotReadyToResolve);
+
     // Update last_attack cooldown
     single_agent.validate_attack(now)?;
     single_agent.last_attack = now;
     alliance_leader.last_attack = now;
     alliance_partner.last_attack = now;
+
+    // Clear battle_start_time after resolution
+    single_agent.battle_start_time = None;
+    alliance_leader.battle_start_time = None;
+    alliance_partner.battle_start_time = None;
 
     // Unpack token accounts
     let single_token_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.single_agent_token.data.borrow())?;
@@ -51,7 +131,7 @@ pub fn resolve_battle_agent_vs_alliance(
         let total_lost = alliance_balance
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
-        
+
         // Use u128 math to avoid overflow.
         let leader_deduction: u64 = if alliance_balance > 0 {
             (((total_lost as u128) * (alliance_leader_data.amount as u128))
@@ -77,6 +157,12 @@ pub fn resolve_battle_agent_vs_alliance(
             };
             transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_deduction)?;
         }
+
+        emit!(BattleResolved {
+            winner_id: single_agent.id,
+            loser_id: alliance_leader.id, // Assuming alliance_leader represents the alliance
+            transfer_amount: total_lost,
+        });
     } else {
         // Alliance is winner, single agent is loser.
         // Compute the lost amount from the single agent's balance.
@@ -106,45 +192,66 @@ pub fn resolve_battle_agent_vs_alliance(
             };
             transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), remainder)?;
         }
+
+        emit!(BattleResolved {
+            winner_id: alliance_leader.id, // Assuming alliance_leader represents the alliance
+            loser_id: single_agent.id,
+            transfer_amount: lost_amount,
+        });
     }
 
     Ok(())
 }
 
-/// If alliance battles another alliance. 
-/// We assume each side has a "leader" and "partner".
-/// The losing side is determined externally by an argument `alliance_a_wins`.
-/// If `alliance_a_wins` is `true`, alliance A is winner. Otherwise alliance B is winner.
-/// We take the losing alliance's balance, apply `percent_lost`, and distribute among the winners.
+/// Resolves a battle between two alliances with token transfers. 
+/// Ensures that at least 1 hour has passed since battle started.
 pub fn resolve_battle_alliance_vs_alliance(
     ctx: Context<ResolveBattleAlliances>,
     percent_lost: u8,
     alliance_a_wins: bool,
 ) -> Result<()> {
+    let authority = &ctx.accounts.authority;
+    let game = &ctx.accounts.game;
+    require!(authority.key() == game.authority, GameError::Unauthorized);
+
     let now = Clock::get()?.unix_timestamp;
 
-    // Alliance A: (leaderA, partnerA)
-    let leaderA = &mut ctx.accounts.leader_a;
-    let partnerA = &mut ctx.accounts.partner_a;
-    // Alliance B: (leaderB, partnerB)
-    let leaderB = &mut ctx.accounts.leader_b;
-    let partnerB = &mut ctx.accounts.partner_b;
+    // Alliances A and B
+    let leader_a = &mut ctx.accounts.leader_a;
+    let partner_a = &mut ctx.accounts.partner_a;
+    let leader_b = &mut ctx.accounts.leader_b;
+    let partner_b = &mut ctx.accounts.partner_b;
 
-    // Update last_attack fields.
-    leaderA.validate_attack(now)?;
-    leaderA.last_attack = now;
-    partnerA.last_attack = now;
-    leaderB.last_attack = now;
-    partnerB.last_attack = now;
+    // Ensure battle has started and cooldown has passed
+    let battle_start_a = leader_a.battle_start_time.ok_or(GameError::BattleNotStarted)?;
+    let battle_start_b = leader_b.battle_start_time.ok_or(GameError::BattleNotStarted)?;
+    require!(now >= battle_start_a + 3600, GameError::BattleNotReadyToResolve);
+    require!(now >= battle_start_b + 3600, GameError::BattleNotReadyToResolve);
+
+    // Update last_attack cooldown
+    leader_a.validate_attack(now)?;
+    leader_a.last_attack = now;
+    partner_a.validate_attack(now)?;
+    partner_a.last_attack = now;
+    leader_b.validate_attack(now)?;
+    leader_b.last_attack = now;
+    partner_b.validate_attack(now)?;
+    partner_b.last_attack = now;
+
+    // Clear battle_start_time after resolution
+    leader_a.battle_start_time = None;
+    partner_a.battle_start_time = None;
+    leader_b.battle_start_time = None;
+    partner_b.battle_start_time = None;
 
     // Unpack token accounts.
-    let leaderA_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_a_token.data.borrow())?;
-    let partnerA_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_a_token.data.borrow())?;
-    let leaderB_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_b_token.data.borrow())?;
-    let partnerB_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_b_token.data.borrow())?;
+    let leader_a_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_a_token.data.borrow())?;
+    let partner_a_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_a_token.data.borrow())?;
+    let leader_b_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_b_token.data.borrow())?;
+    let partner_b_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_b_token.data.borrow())?;
 
-    let alliance_a_balance = leaderA_data.amount.checked_add(partnerA_data.amount).ok_or(GameError::InsufficientFunds)?;
-    let alliance_b_balance = leaderB_data.amount.checked_add(partnerB_data.amount).ok_or(GameError::InsufficientFunds)?;
+    let alliance_a_balance = leader_a_data.amount.checked_add(partner_a_data.amount).ok_or(GameError::InsufficientFunds)?;
+    let alliance_b_balance = leader_b_data.amount.checked_add(partner_b_data.amount).ok_or(GameError::InsufficientFunds)?;
 
     if alliance_a_wins {
         // Alliance B loses.
@@ -153,11 +260,12 @@ pub fn resolve_battle_alliance_vs_alliance(
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
 
         let leader_b_deduction: u64 = if alliance_b_balance > 0 {
-            (((total_lost as u128) * (leaderB_data.amount as u128))
+            (((total_lost as u128) * (leader_b_data.amount as u128))
                 / (alliance_b_balance as u128)) as u64
         } else { 0 };
         let partner_b_deduction = total_lost.checked_sub(leader_b_deduction).ok_or(GameError::InsufficientFunds)?;
 
+        // Transfer from alliance_b_leader_token -> alliance_a_leader_token
         if leader_b_deduction > 0 {
             let cpi_accounts = Transfer {
                 from: ctx.accounts.leader_b_token.to_account_info(),
@@ -166,6 +274,7 @@ pub fn resolve_battle_alliance_vs_alliance(
             };
             transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_b_deduction)?;
         }
+        // Transfer from alliance_b_partner_token -> alliance_a_partner_token
         if partner_b_deduction > 0 {
             let cpi_accounts = Transfer {
                 from: ctx.accounts.partner_b_token.to_account_info(),
@@ -174,6 +283,12 @@ pub fn resolve_battle_alliance_vs_alliance(
             };
             transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_b_deduction)?;
         }
+
+        emit!(BattleResolved {
+            winner_id: leader_a.id, // Assuming alliance A is represented by leader_a
+            loser_id: leader_b.id,  // Assuming alliance B is represented by leader_b
+            transfer_amount: total_lost,
+        });
     } else {
         // Alliance A loses.
         let total_lost = alliance_a_balance
@@ -181,11 +296,12 @@ pub fn resolve_battle_alliance_vs_alliance(
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
 
         let leader_a_deduction: u64 = if alliance_a_balance > 0 {
-            (((total_lost as u128) * (leaderA_data.amount as u128))
+            (((total_lost as u128) * (leader_a_data.amount as u128))
                 / (alliance_a_balance as u128)) as u64
         } else { 0 };
         let partner_a_deduction = total_lost.checked_sub(leader_a_deduction).ok_or(GameError::InsufficientFunds)?;
 
+        // Transfer from alliance_a_leader_token -> alliance_b_leader_token
         if leader_a_deduction > 0 {
             let cpi_accounts = Transfer {
                 from: ctx.accounts.leader_a_token.to_account_info(),
@@ -194,6 +310,7 @@ pub fn resolve_battle_alliance_vs_alliance(
             };
             transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_a_deduction)?;
         }
+        // Transfer from alliance_a_partner_token -> alliance_b_partner_token
         if partner_a_deduction > 0 {
             let cpi_accounts = Transfer {
                 from: ctx.accounts.partner_a_token.to_account_info(),
@@ -202,14 +319,21 @@ pub fn resolve_battle_alliance_vs_alliance(
             };
             transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_a_deduction)?;
         }
+
+        emit!(BattleResolved {
+            winner_id: leader_b.id, // Assuming alliance B is represented by leader_b
+            loser_id: leader_a.id,  // Assuming alliance A is represented by leader_a
+            transfer_amount: total_lost,
+        });
     }
 
     Ok(())
 }
 
-/// Resolve a simple battle (non‐alliance) with token transfer.
+/// Resolve a simple battle (non-alliance) with token transfer.
 /// The loser loses `percent_lost` percent of its token balance, and that lost amount is transferred 
 /// directly to the winner’s token account.
+/// Ensures that at least 1 hour has passed since battle started.
 pub fn resolve_battle_simple(
     ctx: Context<ResolveBattleSimple>,
     percent_lost: u8,
@@ -221,9 +345,20 @@ pub fn resolve_battle_simple(
     let winner = &mut ctx.accounts.winner;
     let loser = &mut ctx.accounts.loser;
     let now = Clock::get()?.unix_timestamp;
+
+    // Ensure battle has started and cooldown has passed
+    let battle_start = loser.battle_start_time.ok_or(GameError::BattleNotStarted)?;
+    require!(now >= battle_start + 3600, GameError::BattleNotReadyToResolve);
+
+    // Update last_attack cooldown
     winner.validate_attack(now)?;
     winner.last_attack = now;
+    loser.validate_attack(now)?;
     loser.last_attack = now;
+
+    // Clear battle_start_time after resolution
+    winner.battle_start_time = None;
+    loser.battle_start_time = None;
 
     let loser_token_account = SplTokenAccount::unpack_from_slice(&ctx.accounts.loser_token.data.borrow())?;
     let lost_amount = loser_token_account.amount
@@ -246,6 +381,79 @@ pub fn resolve_battle_simple(
         transfer_amount: lost_amount,
     });
     Ok(())
+}
+
+/// Starts a simple battle between two agents.
+pub fn start_battle_simple(
+    ctx: Context<StartBattleSimple>,
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let winner = &mut ctx.accounts.winner;
+    let loser = &mut ctx.accounts.loser;
+
+    // Ensure both agents are alive
+    require!(winner.is_alive, GameError::AgentNotAlive);
+    require!(loser.is_alive, GameError::AgentNotAlive);
+
+    // Ensure neither agent is already in a battle
+    require!(winner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+    require!(loser.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+
+    // Record battle start time
+    winner.battle_start_time = Some(now);
+    loser.battle_start_time = Some(now);
+
+    // emit!(BattleStarted {
+    //     winner_id: winner.id,
+    //     loser_id: loser.id,
+    //     start_time: now,
+    // });
+
+    Ok(())
+}
+
+/// Define the Contexts for the new instructions
+
+#[derive(Accounts)]
+pub struct StartBattleAgentVsAlliance<'info> {
+    #[account(mut, has_one = game)]
+    pub attacker: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub alliance_leader: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub alliance_partner: Account<'info, Agent>,
+    pub game: Account<'info, Game>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>, // Game authority
+}
+
+#[derive(Accounts)]
+pub struct StartBattleAlliances<'info> {
+    #[account(mut, has_one = game)]
+    pub leader_a: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub partner_a: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub leader_b: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub partner_b: Account<'info, Agent>,
+    pub game: Account<'info, Game>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>, // Game authority
+}
+
+#[derive(Accounts)]
+pub struct StartBattleSimple<'info> {
+    #[account(mut, has_one = game)]
+    pub winner: Account<'info, Agent>,
+    #[account(mut, has_one = game)]
+    pub loser: Account<'info, Agent>,
+    pub game: Account<'info, Game>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>, // Game authority
 }
 
 #[derive(Accounts)]
@@ -287,12 +495,12 @@ pub struct ResolveBattleAgentAlliance<'info> {
 pub struct ResolveBattleAlliances<'info> {
     #[account(mut, has_one = game)]
     pub leader_a: Account<'info, Agent>,
-    #[account(mut)]
+    #[account(mut, has_one = game)]
     pub partner_a: Account<'info, Agent>,
 
     #[account(mut, has_one = game)]
     pub leader_b: Account<'info, Agent>,
-    #[account(mut)]
+    #[account(mut, has_one = game)]
     pub partner_b: Account<'info, Agent>,
 
     pub game: Account<'info, Game>,
