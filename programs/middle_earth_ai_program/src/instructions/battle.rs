@@ -546,3 +546,50 @@ pub struct ResolveBattleSimple<'info> {
     pub authority: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct ResetBattleTimes<'info> {
+    // Each of these is optional. If you don't need 4, you can do fewer or a dynamic approach.
+    #[account(mut)]
+    pub agent1: Account<'info, Agent>,
+    #[account(mut)]
+    pub agent2: Account<'info, Agent>,
+    #[account(mut)]
+    pub agent3: Account<'info, Agent>,
+    #[account(mut)]
+    pub agent4: Account<'info, Agent>,
+
+    // The authority allowed to do this test-only reset,
+    // typically the same as `game.authority` or your test wallet.
+    pub authority: Signer<'info>,
+}
+
+/// A test-only instruction that forcibly resets the battle-related timestamps
+/// for up to 4 agents, clearing `battle_start_time`, `last_attack`, etc.
+pub fn reset_battle_times(ctx: Context<ResetBattleTimes>) -> Result<()> {
+    // agent1
+    let a1 = &mut ctx.accounts.agent1;
+    a1.battle_start_time = None;
+    a1.last_attack = 0;
+    a1.next_move_time = 0;
+    
+    // agent2
+    let a2 = &mut ctx.accounts.agent2;
+    a2.battle_start_time = None;
+    a2.last_attack = 0;
+    a2.next_move_time = 0;
+
+    // agent3
+    let a3 = &mut ctx.accounts.agent3;
+    a3.battle_start_time = None;
+    a3.last_attack = 0;
+    a3.next_move_time = 0;
+
+    // agent4
+    let a4 = &mut ctx.accounts.agent4;
+    a4.battle_start_time = None;
+    a4.last_attack = 0;
+    a4.next_move_time = 0;
+
+    Ok(())
+}
+

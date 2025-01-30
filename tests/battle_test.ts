@@ -1,4 +1,3 @@
-// tests/battle.test.ts
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN } from "@coral-xyz/anchor";
@@ -23,7 +22,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
 
   const gameId = new BN(999);
   let gamePda: PublicKey;
-  let gameBump: number; // To store the bump
+  let gameBump: number; // Store the bump
   let tokenMint: PublicKey;
 
   const tokenAccounts: { [agentId: number]: PublicKey } = {};
@@ -39,12 +38,25 @@ describe("Battle Contract Tests with Cooldowns", () => {
   const allianceB = { leader: 12, partner: 13 };
   const simpleBattle = { winner: 20, loser: 21 };
 
+  // We'll gather *all* agent IDs in one array for resets
+  const ALL_AGENT_IDS = [
+    allianceBattleAgents.singleAgent,
+    allianceBattleAgents.allianceLeader,
+    allianceBattleAgents.alliancePartner,
+    allianceA.leader,
+    allianceA.partner,
+    allianceB.leader,
+    allianceB.partner,
+    simpleBattle.winner,
+    simpleBattle.loser,
+  ];
+
   // Derive agent PDA
   const deriveAgentPda = async (agentId: number): Promise<PublicKey> => {
     const [pda] = await PublicKey.findProgramAddress(
       [
         Buffer.from("agent"),
-        gamePda.toBuffer(), // Correct seed: gamePda buffer
+        gamePda.toBuffer(),
         Buffer.from([agentId]),
       ],
       program.programId
@@ -58,15 +70,15 @@ describe("Battle Contract Tests with Cooldowns", () => {
       program.programId
     );
     gamePda = pda;
-    gameBump = bump; // Store the bump
+    gameBump = bump;
 
     try {
       await program.methods
-        .initializeGame(gameId.toNumber(), gameBump) // Pass as number (u32 and u8)
+        .initializeGame(gameId.toNumber(), gameBump)
         .accounts({
           game: gamePda,
           authority: provider.wallet.publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
       console.log("Game initialized.");
@@ -90,21 +102,8 @@ describe("Battle Contract Tests with Cooldowns", () => {
     console.log("Created token mint:", tokenMint.toBase58());
 
     // Agents
-    const allAgentIds = [
-      allianceBattleAgents.singleAgent,
-      allianceBattleAgents.allianceLeader,
-      allianceBattleAgents.alliancePartner,
-      allianceA.leader,
-      allianceA.partner,
-      allianceB.leader,
-      allianceB.partner,
-      simpleBattle.winner,
-      simpleBattle.loser,
-    ];
-
     const initialMintAmount = 1_000_000_000_000;
-
-    for (const id of allAgentIds) {
+    for (const id of ALL_AGENT_IDS) {
       const agentAuth = Keypair.generate();
       agentAuthorities[id] = agentAuth;
 
@@ -132,20 +131,8 @@ describe("Battle Contract Tests with Cooldowns", () => {
   });
 
   before("Airdrop SOL to agent authorities", async () => {
-    const airdropAmount = 2e9; // 2 SOL in lamports (1 SOL = 1e9 lamports)
-    const allAgentIds = [
-      allianceBattleAgents.singleAgent,
-      allianceBattleAgents.allianceLeader,
-      allianceBattleAgents.alliancePartner,
-      allianceA.leader,
-      allianceA.partner,
-      allianceB.leader,
-      allianceB.partner,
-      simpleBattle.winner,
-      simpleBattle.loser,
-    ];
-
-    for (const id of allAgentIds) {
+    const airdropAmount = 2e9; // 2 SOL
+    for (const id of ALL_AGENT_IDS) {
       const agentPubkey = agentAuthorities[id].publicKey;
       const sig = await connection.requestAirdrop(agentPubkey, airdropAmount);
       await connection.confirmTransaction(sig, "confirmed");
@@ -154,7 +141,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
   });
 
   before("Register Agents", async () => {
-    // For each agent, register with some default coordinates
+    // For each agent, register with some default coords
     const registerAgent = async (agentId: number, x: number, y: number, name: string) => {
       const agentPda = await deriveAgentPda(agentId);
       try {
@@ -167,7 +154,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
             game: gamePda,
             agent: agentPda,
             authority: agentAuthorities[agentId].publicKey,
-            systemProgram: anchor.web3.SystemProgram.programId,
+            systemProgram: SystemProgram.programId,
           })
           .signers([agentAuthorities[agentId]])
           .rpc();
@@ -175,20 +162,68 @@ describe("Battle Contract Tests with Cooldowns", () => {
       }
     };
 
+    // Alliance battles
     await registerAgent(allianceBattleAgents.singleAgent, 0, 0, "SoloAgent");
     await registerAgent(allianceBattleAgents.allianceLeader, 1, 1, "AllianceLeader");
     await registerAgent(allianceBattleAgents.alliancePartner, 2, 2, "AlliancePartner");
 
+    // Two alliances
     await registerAgent(allianceA.leader, 10, 10, "AllianceA_Leader");
     await registerAgent(allianceA.partner, 11, 11, "AllianceA_Partner");
     await registerAgent(allianceB.leader, 12, 12, "AllianceB_Leader");
     await registerAgent(allianceB.partner, 13, 13, "AllianceB_Partner");
 
+    // Simple battle
     await registerAgent(simpleBattle.winner, 20, 20, "SimpleBattleWinner");
     await registerAgent(simpleBattle.loser, 21, 21, "SimpleBattleLoser");
   });
 
-  //
+  // ----------------------------------------------------
+  // AFTER EACH TEST: reset up to 8 agents at a time
+  // Because our "resetBattleTimes" can handle 4 agents, we do two calls.
+  // ----------------------------------------------------
+  afterEach("reset leftover agent state", async () => {
+    // We can chunk ALL_AGENT_IDS into groups of 4
+    const chunk = (arr: number[], size: number) =>
+      arr.length ? [arr.slice(0, size), ...chunk(arr.slice(size), size)] : [];
+
+    // e.g. break the 9 agent IDs into chunks of 4 => two or three calls
+    const groups = chunk(ALL_AGENT_IDS, 4);
+
+    for (const group of groups) {
+      // If group length < 4, fill with duplicates
+      const [a1, a2, a3, a4] = [
+        group[0] ?? group[0],
+        group[1] ?? group[0],
+        group[2] ?? group[0],
+        group[3] ?? group[0],
+      ];
+
+      // Derive PDAs
+      const agentPda1 = await deriveAgentPda(a1);
+      const agentPda2 = await deriveAgentPda(a2);
+      const agentPda3 = await deriveAgentPda(a3);
+      const agentPda4 = await deriveAgentPda(a4);
+
+      try {
+        await program.methods
+          .resetBattleTimes()
+          .accounts({
+            agent1: agentPda1,
+            agent2: agentPda2,
+            agent3: agentPda3,
+            agent4: agentPda4,
+            authority: provider.wallet.publicKey,
+          })
+          .rpc();
+      } catch (err: any) {
+        console.log("resetBattleTimes call failed, possibly partial =>", err.message);
+      }
+    }
+
+    console.log("Finished resetting leftover agent states.");
+  });
+
   // Now the tests for battles
   //
 
@@ -359,6 +394,11 @@ describe("Battle Contract Tests with Cooldowns", () => {
       console.log("Cooldown set to past time to allow battle resolution.");
 
       // Now, resolve the battle with agent as loser
+      const finalSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
+      const finalLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
+      const finalPartner = await getAccount(connection, tokenAccounts[alliancePartnerId]);
+
+      console.log("Single Agent Balance : " , Number(finalSolo.amount));
       await program.methods
         .resolveBattleAgentVsAlliance(new BN(25), false)
         .accounts({
@@ -383,14 +423,14 @@ describe("Battle Contract Tests with Cooldowns", () => {
         .rpc();
 
       // Verify token balances
-      const finalSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
-      const finalLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
-      const finalPartner = await getAccount(connection, tokenAccounts[alliancePartnerId]);
+      const newBalance = await getAccount(connection, tokenAccounts[singleAgentId]);
+      const newLeaderBalace = await getAccount(connection, tokenAccounts[allianceLeaderId]);
+      const newPartnerBalance = await getAccount(connection, tokenAccounts[alliancePartnerId]);
 
       console.log("After (agent loses): solo balance =", Number(finalSolo.amount), ", leader balance =", Number(finalLeader.amount), ", partner balance =", Number(finalPartner.amount));
-      expect(Number(finalSolo.amount)).to.be.lessThan(1_000_000_000_000);
-      expect(Number(finalLeader.amount)).to.be.greaterThan(1_000_000_000_000);
-      expect(Number(finalPartner.amount)).to.be.greaterThan(1_000_000_000_000);
+      expect(Number(newBalance.amount - finalSolo.amount )).to.be.lessThan(0);
+      expect(Number(newLeaderBalace.amount - finalLeader.amount)).to.be.greaterThan(0);
+      expect(Number(newPartnerBalance.amount - finalPartner.amount)).to.be.greaterThan(0);
     });
   });
 

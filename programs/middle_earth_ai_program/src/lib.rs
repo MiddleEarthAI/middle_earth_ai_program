@@ -125,7 +125,9 @@ pub mod middle_earth_ai_program {
         agent::set_agent_cooldown(ctx, new_cooldown)
     }
 
-
+    pub fn reset_battle_times(ctx: Context<ResetBattleTimes>) -> Result<()> {
+        battle::reset_battle_times(ctx)
+    }
 
  
 

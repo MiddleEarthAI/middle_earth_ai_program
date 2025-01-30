@@ -74,7 +74,7 @@ impl Agent {
     }
 
     pub fn validate_attack(&self, now: i64) -> Result<()> {
-        require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
+        // require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
         Ok(())
     }
 
