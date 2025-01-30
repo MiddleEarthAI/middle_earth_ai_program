@@ -574,36 +574,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
         })
         .rpc();
 try{
-        const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
-        await program.methods
-          .setAgentCooldown(new BN(0))
-          .accounts({
-            agent: loserPda,
-            game: gamePda,
-            authority: provider.wallet.publicKey,
-          })
-          .rpc();
-    
-              }
-              catch (err: any) {
-                console.log("Set Cooldown timer failed ");
-              }  
-
-              try{
-                const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
-                await program.methods
-                  .setAgentCooldown(new BN(0))
-                  .accounts({
-                    agent: winnerPda,
-                    game: gamePda,
-                    authority: provider.wallet.publicKey,
-                  })
-                  .rpc();
-            
-                      }
-                      catch (err: any) {
-                        console.log("Set Cooldown timer failed ");
-                      }    
+      
               
               // Attempt to resolve immediately (should fail due to cooldown)
       try {
@@ -625,7 +596,7 @@ try{
           .rpc();
 
         // If no error, fail the test
-        // expect.fail("Battle resolved before cooldown");
+        expect.fail("Battle resolved before cooldown");
       } catch (err: any) {
         console.log("Expected failure when resolving simple battle before cooldown:", err.message);
         expect(err.message).to.include("BattleNotReadyToResolve");
@@ -634,7 +605,36 @@ try{
       // Set cooldown to allow resolution
 
       console.log("Cooldown set to past time to allow battle resolution.");
+      const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
+      await program.methods
+        .setAgentCooldown(new BN(0))
+        .accounts({
+          agent: loserPda,
+          game: gamePda,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
+  
+            }
+            catch (err: any) {
+              console.log("Set Cooldown timer failed ");
+            }  
 
+            try{
+              const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
+              await program.methods
+                .setAgentCooldown(new BN(0))
+                .accounts({
+                  agent: winnerPda,
+                  game: gamePda,
+                  authority: provider.wallet.publicKey,
+                })
+                .rpc();
+          
+                    }
+                    catch (err: any) {
+                      console.log("Set Cooldown timer failed ");
+                    }    
       // Now, resolve the battle
       await program.methods
         .resolveBattleSimple(new BN(20))
