@@ -545,3 +545,4 @@ pub struct ResolveBattleSimple<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 }
+

@@ -90,6 +90,7 @@ impl Agent {
     pub fn set_attack_cooldown(&mut self, now: i64) {
         self.last_attack = now;
         self.next_move_time = now + COOLDOWN_SECS;
+        self.battle_start_time = Some(now);
     }
 
 
