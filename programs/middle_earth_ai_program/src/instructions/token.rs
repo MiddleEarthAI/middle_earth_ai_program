@@ -251,7 +251,6 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
 /// --------------------------------------------
 pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
-    // require!(stake_info.is_initialized, GameError::NotEnoughTokens);
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -343,12 +342,6 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     // Update the last reward timestamp
     stake_info.last_reward_timestamp = now;
 
-    // Optional: Emit an event for successful reward claim
-    // emit!(RewardClaimed {
-    //     staker: stake_info.staker,
-    //     amount: user_reward,
-    //     timestamp: now,
-    // });
 
     Ok(())
 }

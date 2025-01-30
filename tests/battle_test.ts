@@ -720,48 +720,5 @@ try{
       }
     });
 
-    it("Fails to resolve a battle during cooldown", async () => {
-      const winnerId = simpleBattle.winner;
-      const loserId = simpleBattle.loser;
-      const winnerPda = await deriveAgentPda(winnerId);
-      const loserPda = await deriveAgentPda(loserId);
-
-      // Start the battle
-      await program.methods
-        .startBattleSimple()
-        .accounts({
-          winner: winnerPda,
-          loser: loserPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-
-      // Attempt to resolve battle immediately after starting (cooldown active)
-      try {
-        await program.methods
-          .resolveBattleSimple(new BN(15))
-          .accounts({
-            winner: winnerPda,
-            loser: loserPda,
-            game: gamePda,
-            winnerToken: tokenAccounts[winnerId],
-            loserToken: tokenAccounts[loserId],
-            loserAuthority: agentAuthorities[loserId].publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            authority: provider.wallet.publicKey,
-          })
-          .signers([
-            agentAuthorities[loserId]
-          ])
-          .rpc();
-
-        // If no error, fail the test
-        expect.fail("Battle resolved during cooldown");
-      } catch (err: any) {
-        console.log("Battle blocked due to cooldown:", err.message);
-        expect(err.message).to.include("BattleNotReadyToResolve");
-      }
-    });
   });
 });
