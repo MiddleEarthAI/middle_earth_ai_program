@@ -113,13 +113,19 @@ pub mod middle_earth_ai_program {
     }
 
     /// Starts a battle between two alliances.
-    pub fn start_battle_alliance_vs_alliance(ctx: Context<StartBattleAlliances>) -> Result<()> {
+    pub fn start_battle_alliances(ctx: Context<StartBattleAlliances>) -> Result<()> {
         battle::start_battle_alliance_vs_alliance(ctx)
     }
 
     pub fn start_battle_simple(ctx: Context<StartBattleSimple>) -> Result<()> {
         battle::start_battle_simple(ctx)
     }
+
+    pub fn set_agent_cooldown(ctx: Context<SetAgentCooldown>, new_cooldown: i64) -> Result<()> {
+        agent::set_agent_cooldown(ctx, new_cooldown)
+    }
+
+ 
 
 }
 

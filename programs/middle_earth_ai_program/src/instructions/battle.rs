@@ -6,8 +6,11 @@ use crate::state::{Agent, Game};
 use crate::error::GameError;
 use crate::events::*; // Ensure BattleStarted and BattleResolved events are defined
 
+const AGENT_VS_ALLIANCE_COOLDOWN: i64 = 3500;
+const ALLIANCE_VS_ALLIANCE_COOLDOWN: i64 = 3600;
+const SIMPLE_BATTLE_COOLDOWN: i64 = 3600;
+
 /// Starts a battle between an agent and an alliance.
-/// Records the start time to enforce a cooldown before resolution.
 pub fn start_battle_agent_vs_alliance(
     ctx: Context<StartBattleAgentVsAlliance>,
 ) -> Result<()> {
@@ -21,7 +24,7 @@ pub fn start_battle_agent_vs_alliance(
     require!(alliance_leader.is_alive, GameError::AgentNotAlive);
     require!(alliance_partner.is_alive, GameError::AgentNotAlive);
 
-    // Ensure none of the agents are already in a battle
+    // Ensure none are already in a battle
     require!(attacker.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
     require!(alliance_leader.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
     require!(alliance_partner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
@@ -31,18 +34,13 @@ pub fn start_battle_agent_vs_alliance(
     alliance_leader.battle_start_time = Some(now);
     alliance_partner.battle_start_time = Some(now);
 
-    // emit!(BattleStarted {
-    //     attacker_id: attacker.id,
-    //     alliance_leader_id: alliance_leader.id,
-    //     alliance_partner_id: alliance_partner.id,
-    //     start_time: now,
-    // });
+    // Optionally emit an event
+    // emit!(BattleStarted { ... });
 
     Ok(())
 }
 
 /// Starts a battle between two alliances.
-/// Records the start time to enforce a cooldown before resolution.
 pub fn start_battle_alliance_vs_alliance(
     ctx: Context<StartBattleAlliances>,
 ) -> Result<()> {
@@ -58,7 +56,7 @@ pub fn start_battle_alliance_vs_alliance(
     require!(leader_b.is_alive, GameError::AgentNotAlive);
     require!(partner_b.is_alive, GameError::AgentNotAlive);
 
-    // Ensure none of the agents are already in a battle
+    // Ensure none are already in a battle
     require!(leader_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
     require!(partner_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
     require!(leader_b.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
@@ -70,23 +68,42 @@ pub fn start_battle_alliance_vs_alliance(
     leader_b.battle_start_time = Some(now);
     partner_b.battle_start_time = Some(now);
 
-    // emit!(BattleStarted {
-    //     alliance_a_leader_id: leader_a.id,
-    //     alliance_a_partner_id: partner_a.id,
-    //     alliance_b_leader_id: leader_b.id,
-    //     alliance_b_partner_id: partner_b.id,
-    //     start_time: now,
-    // });
+    // Optionally emit an event
+    // emit!(BattleStarted { ... });
 
     Ok(())
 }
 
-/// Resolves a battle with alliance support with token transfers. 
-/// Ensures that at least 1 hour has passed since battle started.
+/// Starts a simple battle between two agents.
+pub fn start_battle_simple(
+    ctx: Context<StartBattleSimple>,
+) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let winner = &mut ctx.accounts.winner;
+    let loser = &mut ctx.accounts.loser;
+
+    // Ensure both agents are alive
+    require!(winner.is_alive, GameError::AgentNotAlive);
+    require!(loser.is_alive, GameError::AgentNotAlive);
+
+    // Ensure neither agent is already in a battle
+    require!(winner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+    require!(loser.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+
+    // Record battle start time
+    winner.battle_start_time = Some(now);
+    loser.battle_start_time = Some(now);
+
+    // Optionally emit an event
+    // emit!(BattleStarted { ... });
+
+    Ok(())
+}
+
+/// Resolves a battle between an agent and an alliance after cooldown.
 pub fn resolve_battle_agent_vs_alliance(
     ctx: Context<ResolveBattleAgentAlliance>,
     percent_lost: u8,
-    // "agent_is_winner" param indicates if the single agent is the winner or loser.
     agent_is_winner: bool,
 ) -> Result<()> {
     let authority = &ctx.accounts.authority;
@@ -95,14 +112,13 @@ pub fn resolve_battle_agent_vs_alliance(
 
     let now = Clock::get()?.unix_timestamp;
 
-    // Agents
     let single_agent = &mut ctx.accounts.single_agent;
     let alliance_leader = &mut ctx.accounts.alliance_leader;
     let alliance_partner = &mut ctx.accounts.alliance_partner;
 
     // Ensure battle has started and cooldown has passed
     let battle_start = single_agent.battle_start_time.ok_or(GameError::BattleNotStarted)?;
-    require!(now >= battle_start + 3500, GameError::BattleNotReadyToResolve);
+    require!(now >= battle_start + AGENT_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
     single_agent.validate_attack(now)?;
@@ -132,7 +148,7 @@ pub fn resolve_battle_agent_vs_alliance(
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
 
-        // Use u128 math to avoid overflow.
+        // Distribute loss proportionally to alliance leader and partner
         let leader_deduction: u64 = if alliance_balance > 0 {
             (((total_lost as u128) * (alliance_leader_data.amount as u128))
                 / (alliance_balance as u128)) as u64
@@ -203,8 +219,7 @@ pub fn resolve_battle_agent_vs_alliance(
     Ok(())
 }
 
-/// Resolves a battle between two alliances with token transfers. 
-/// Ensures that at least 1 hour has passed since battle started.
+/// Resolves a battle between two alliances after cooldown.
 pub fn resolve_battle_alliance_vs_alliance(
     ctx: Context<ResolveBattleAlliances>,
     percent_lost: u8,
@@ -225,8 +240,8 @@ pub fn resolve_battle_alliance_vs_alliance(
     // Ensure battle has started and cooldown has passed
     let battle_start_a = leader_a.battle_start_time.ok_or(GameError::BattleNotStarted)?;
     let battle_start_b = leader_b.battle_start_time.ok_or(GameError::BattleNotStarted)?;
-    require!(now >= battle_start_a + 3600, GameError::BattleNotReadyToResolve);
-    require!(now >= battle_start_b + 3600, GameError::BattleNotReadyToResolve);
+    require!(now >= battle_start_a + ALLIANCE_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
+    require!(now >= battle_start_b + ALLIANCE_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
     leader_a.validate_attack(now)?;
@@ -254,7 +269,7 @@ pub fn resolve_battle_alliance_vs_alliance(
     let alliance_b_balance = leader_b_data.amount.checked_add(partner_b_data.amount).ok_or(GameError::InsufficientFunds)?;
 
     if alliance_a_wins {
-        // Alliance B loses.
+        // Alliance A wins, Alliance B loses.
         let total_lost = alliance_b_balance
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
@@ -290,7 +305,7 @@ pub fn resolve_battle_alliance_vs_alliance(
             transfer_amount: total_lost,
         });
     } else {
-        // Alliance A loses.
+        // Alliance A loses, Alliance B wins.
         let total_lost = alliance_a_balance
             .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
             .checked_div(100).ok_or(GameError::InsufficientFunds)?;
@@ -330,10 +345,7 @@ pub fn resolve_battle_alliance_vs_alliance(
     Ok(())
 }
 
-/// Resolve a simple battle (non-alliance) with token transfer.
-/// The loser loses `percent_lost` percent of its token balance, and that lost amount is transferred 
-/// directly to the winner’s token account.
-/// Ensures that at least 1 hour has passed since battle started.
+/// Resolves a simple battle (non-alliance) after cooldown.
 pub fn resolve_battle_simple(
     ctx: Context<ResolveBattleSimple>,
     percent_lost: u8,
@@ -342,18 +354,18 @@ pub fn resolve_battle_simple(
     let game = &ctx.accounts.game;
     require!(authority.key() == game.authority, GameError::Unauthorized);
 
+    let now = Clock::get()?.unix_timestamp;
     let winner = &mut ctx.accounts.winner;
     let loser = &mut ctx.accounts.loser;
-    let now = Clock::get()?.unix_timestamp;
 
     // Ensure battle has started and cooldown has passed
     let battle_start = loser.battle_start_time.ok_or(GameError::BattleNotStarted)?;
-    require!(now >= battle_start + 3600, GameError::BattleNotReadyToResolve);
+    require!(now >= battle_start + SIMPLE_BATTLE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
     winner.validate_attack(now)?;
-    winner.last_attack = now;
     loser.validate_attack(now)?;
+    winner.last_attack = now;
     loser.last_attack = now;
 
     // Clear battle_start_time after resolution
@@ -383,36 +395,9 @@ pub fn resolve_battle_simple(
     Ok(())
 }
 
-/// Starts a simple battle between two agents.
-pub fn start_battle_simple(
-    ctx: Context<StartBattleSimple>,
-) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
-    let winner = &mut ctx.accounts.winner;
-    let loser = &mut ctx.accounts.loser;
-
-    // Ensure both agents are alive
-    require!(winner.is_alive, GameError::AgentNotAlive);
-    require!(loser.is_alive, GameError::AgentNotAlive);
-
-    // Ensure neither agent is already in a battle
-    require!(winner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-    require!(loser.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-
-    // Record battle start time
-    winner.battle_start_time = Some(now);
-    loser.battle_start_time = Some(now);
-
-    // emit!(BattleStarted {
-    //     winner_id: winner.id,
-    //     loser_id: loser.id,
-    //     start_time: now,
-    // });
-
-    Ok(())
-}
-
-/// Define the Contexts for the new instructions
+// -------------------------
+// Contexts
+// -------------------------
 
 #[derive(Accounts)]
 pub struct StartBattleAgentVsAlliance<'info> {
@@ -425,7 +410,7 @@ pub struct StartBattleAgentVsAlliance<'info> {
     pub game: Account<'info, Game>,
 
     #[account(mut)]
-    pub authority: Signer<'info>, // Game authority
+    pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -441,7 +426,7 @@ pub struct StartBattleAlliances<'info> {
     pub game: Account<'info, Game>,
 
     #[account(mut)]
-    pub authority: Signer<'info>, // Game authority
+    pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -453,7 +438,7 @@ pub struct StartBattleSimple<'info> {
     pub game: Account<'info, Game>,
 
     #[account(mut)]
-    pub authority: Signer<'info>, // Game authority
+    pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]

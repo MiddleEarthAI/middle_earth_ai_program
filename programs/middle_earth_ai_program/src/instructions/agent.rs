@@ -2,9 +2,10 @@ use anchor_lang::prelude::*;
 use crate::state::{Agent, Game};
 use crate::error::GameError;
 
-/// Combines the functionalities of `initialize_agent` and `add_agent`. 
-/// This function initializes an agent account and registers it in the global agent list.
-/// 
+/// Registers a new agent under the specified game.
+///
+/// This creates and initializes the agent account using PDA seeds
+/// and also registers it in the global agent list on the `Game` account.
 pub fn register_agent(
     ctx: Context<RegisterAgent>,
     agent_id: u8,
@@ -15,24 +16,20 @@ pub fn register_agent(
     let game_account = &mut ctx.accounts.game;
     let agent_account = &mut ctx.accounts.agent;
 
-    // Cache the agent's public key before modifying it.
-    let agent_key = agent_account.key();
-
     // Ensure the game is active.
     require!(game_account.is_active, GameError::ReentrancyGuard);
 
-    // Ensure the name is within the allowed length.
+    // Name length check (adjust if needed).
     require!(name.len() <= 32, GameError::NameTooLong);
 
-    // Ensure the global agent list does not exceed the limit.
-
-    // Ensure the agent is not already registered in the game's global list.
+    // Ensure the agent is not already registered.
+    let agent_key = agent_account.key();
     require!(
         !game_account.agents.iter().any(|a| a.key == agent_key),
         GameError::AgentAlreadyExists
     );
 
-    // Initialize the agent account.
+    // Initialize the agent.
     agent_account.game = game_account.key();
     agent_account.authority = ctx.accounts.authority.key();
     agent_account.id = agent_id;
@@ -53,10 +50,10 @@ pub fn register_agent(
     agent_account.last_alliance = 0;
     agent_account.next_move_time = 0;
     agent_account.vault_bump = 0;
-
-    // Initialize the new fields for alliance tracking.
-    agent_account.last_alliance_agent = None; // No last alliance agent at registration
-    agent_account.last_alliance_broken = 0;     // No alliance break timestamp at registration
+    // If you track alliance events:
+    agent_account.last_alliance_agent = None;
+    agent_account.last_alliance_broken = 0;
+    agent_account.battle_start_time = None;
 
     // Register the agent in the global list with the provided name.
     game_account.agents.push(crate::state::agent_info::AgentInfo {
@@ -68,32 +65,35 @@ pub fn register_agent(
 }
 
 /// Marks an agent as dead by setting its `is_alive` field to false.
-/// 
 pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
     let agent_account = &mut ctx.accounts.agent;
 
-
+    // Typically, the agent's own authority can kill it, 
+    // or the game authority, depending on your logic.
     require!(ctx.accounts.authority.key() == agent_account.authority, GameError::Unauthorized);
 
-    // Mark the agent as dead.
     agent_account.is_alive = false;
-
     Ok(())
 }
 
+/// Sets an agent's cooldown, e.g. for testing or manual override.
+/// This function is demonstration/test-only and not recommended for production.
 pub fn set_agent_cooldown(
     ctx: Context<SetAgentCooldown>,
     new_next_move_time: i64,
 ) -> Result<()> {
-    ctx.accounts.agent.set_attack_cooldown( new_next_move_time);
+    let agent = &mut ctx.accounts.agent;
+    agent.set_attack_cooldown(new_next_move_time);
     Ok(())
 }
+
+// -------------------------
+// ACCOUNTS
+// -------------------------
 
 #[derive(Accounts)]
 #[instruction(agent_id: u8, x: i32, y: i32, name: String)]
 pub struct RegisterAgent<'info> {
-    // The Game account must be mutable and have an authority.
-    // Access control: It also checks that the game is active.
     #[account(
         mut,
         constraint = game.is_active @ GameError::ReentrancyGuard
@@ -104,11 +104,7 @@ pub struct RegisterAgent<'info> {
     #[account(
         init,
         payer = authority,
-        seeds = [
-            b"agent",
-            game.key().as_ref(),
-            &[agent_id],
-        ],
+        seeds = [b"agent", game.key().as_ref(), &[agent_id]],
         bump,
         space = 8 + Agent::INIT_SPACE
     )]
@@ -120,12 +116,11 @@ pub struct RegisterAgent<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Accounts context for killing an agent.
 #[derive(Accounts)]
 pub struct KillAgent<'info> {
     #[account(mut, has_one = authority)]
     pub agent: Account<'info, Agent>,
-    /// The authority that can perform the kill. In many cases this should match agent.authority.
+    #[account(mut)]
     pub authority: Signer<'info>,
 }
 
@@ -134,6 +129,7 @@ pub struct SetAgentCooldown<'info> {
     #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
     pub game: Account<'info, Game>,
+
     #[account(mut)]
     pub authority: Signer<'info>,
 }
