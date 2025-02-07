@@ -38,7 +38,6 @@ pub fn register_agent(
     agent_account.is_alive = true;
     agent_account.last_move = 0;
     agent_account.last_battle = 0;
-    agent_account.current_battle_start = None;
     agent_account.alliance_with = None;
     agent_account.alliance_timestamp = 0;
     agent_account.token_balance = 0;

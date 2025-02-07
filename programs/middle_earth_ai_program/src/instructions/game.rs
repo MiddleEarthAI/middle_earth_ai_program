@@ -21,7 +21,6 @@ pub fn initialize_game(ctx: Context<InitializeGame>, game_id: u32, bump: u8 ) ->
     game_account.authority = ctx.accounts.authority.key();
     game_account.is_active = true;
     game_account.last_update = Clock::get()?.unix_timestamp;
-    game_account.reentrancy_guard = false;
     game_account.bump = bump;
     game_account.daily_reward_tokens = 0;
 

@@ -4,7 +4,7 @@ use anchor_spl::token::{transfer, Transfer, Token};
 use spl_token::state::Account as SplTokenAccount; // Import SPL Token Account
 use crate::state::{Agent, Game};
 use crate::error::GameError;
-use crate::events::*; // Ensure BattleStarted and BattleResolved events are defined
+use crate::events::*; 
 
 const AGENT_VS_ALLIANCE_COOLDOWN: i64 = 3500;
 const ALLIANCE_VS_ALLIANCE_COOLDOWN: i64 = 3600;
@@ -34,8 +34,6 @@ pub fn start_battle_agent_vs_alliance(
     alliance_leader.battle_start_time = Some(now);
     alliance_partner.battle_start_time = Some(now);
 
-    // Optionally emit an event
-    // emit!(BattleStarted { ... });
 
     Ok(())
 }
