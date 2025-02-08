@@ -121,13 +121,13 @@ pub mod middle_earth_ai_program {
         battle::start_battle_simple(ctx)
     }
 
-    pub fn set_agent_cooldown(ctx: Context<SetAgentCooldown>, new_cooldown: i64) -> Result<()> {
-        agent::set_agent_cooldown(ctx, new_cooldown)
-    }
+    // pub fn set_agent_cooldown(ctx: Context<SetAgentCooldown>, new_cooldown: i64) -> Result<()> {
+    //     agent::set_agent_cooldown(ctx, new_cooldown)
+    // }
 
-    pub fn reset_battle_times(ctx: Context<ResetBattleTimes>) -> Result<()> {
-        battle::reset_battle_times(ctx)
-    }
+    // pub fn reset_battle_times(ctx: Context<ResetBattleTimes>) -> Result<()> {
+    //     battle::reset_battle_times(ctx)
+    // }
 
  
 

@@ -77,14 +77,14 @@ pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
 
 /// Sets an agent's cooldown, e.g. for testing or manual override.
 /// This function is demonstration/test-only and not recommended for production.
-pub fn set_agent_cooldown(
-    ctx: Context<SetAgentCooldown>,
-    new_next_move_time: i64,
-) -> Result<()> {
-    let agent = &mut ctx.accounts.agent;
-    agent.set_attack_cooldown(new_next_move_time);
-    Ok(())
-}
+// pub fn set_agent_cooldown(
+//     ctx: Context<SetAgentCooldown>,
+//     new_next_move_time: i64,
+// ) -> Result<()> {
+//     let agent = &mut ctx.accounts.agent;
+//     agent.set_attack_cooldown(new_next_move_time);
+//     Ok(())
+// }
 
 // -------------------------
 // ACCOUNTS
@@ -123,12 +123,12 @@ pub struct KillAgent<'info> {
     pub authority: Signer<'info>,
 }
 
-#[derive(Accounts)]
-pub struct SetAgentCooldown<'info> {
-    #[account(mut, has_one = game)]
-    pub agent: Account<'info, Agent>,
-    pub game: Account<'info, Game>,
+// #[derive(Accounts)]
+// pub struct SetAgentCooldown<'info> {
+//     #[account(mut, has_one = game)]
+//     pub agent: Account<'info, Agent>,
+//     pub game: Account<'info, Game>,
 
-    #[account(mut)]
-    pub authority: Signer<'info>,
-}
+//     #[account(mut)]
+//     pub authority: Signer<'info>,
+// }
