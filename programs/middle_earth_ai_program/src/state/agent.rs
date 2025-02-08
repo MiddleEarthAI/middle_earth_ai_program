@@ -57,7 +57,7 @@ pub struct Agent {
 impl Agent {
     pub fn validate_movement(&self, now: i64) -> Result<()> {
         require!(self.is_alive, GameError::AgentNotAlive);
-        require!(now >= self.next_move_time, GameError::MovementCooldown);
+        // require!(now >= self.next_move_time, GameError::MovementCooldown);
         Ok(())
     }
 
