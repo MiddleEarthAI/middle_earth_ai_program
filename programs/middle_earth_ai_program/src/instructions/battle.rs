@@ -11,92 +11,92 @@ const ALLIANCE_VS_ALLIANCE_COOLDOWN: i64 = 3600;
 const SIMPLE_BATTLE_COOLDOWN: i64 = 3600;
 
 /// Starts a battle between an agent and an alliance.
-pub fn start_battle_agent_vs_alliance(
-    ctx: Context<StartBattleAgentVsAlliance>,
-) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
-    let attacker = &mut ctx.accounts.attacker;
-    let alliance_leader = &mut ctx.accounts.alliance_leader;
-    let alliance_partner = &mut ctx.accounts.alliance_partner;
+// pub fn start_battle_agent_vs_alliance(
+//     ctx: Context<StartBattleAgentVsAlliance>,
+// ) -> Result<()> {
+//     let now = Clock::get()?.unix_timestamp;
+//     let attacker = &mut ctx.accounts.attacker;
+//     let alliance_leader = &mut ctx.accounts.alliance_leader;
+//     let alliance_partner = &mut ctx.accounts.alliance_partner;
 
-    // Ensure all agents are alive
-    require!(attacker.is_alive, GameError::AgentNotAlive);
-    require!(alliance_leader.is_alive, GameError::AgentNotAlive);
-    require!(alliance_partner.is_alive, GameError::AgentNotAlive);
+//     // Ensure all agents are alive
+//     require!(attacker.is_alive, GameError::AgentNotAlive);
+//     require!(alliance_leader.is_alive, GameError::AgentNotAlive);
+//     require!(alliance_partner.is_alive, GameError::AgentNotAlive);
 
-    // Ensure none are already in a battle
-    require!(attacker.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-    require!(alliance_leader.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-    require!(alliance_partner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     // Ensure none are already in a battle
+//     require!(attacker.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     require!(alliance_leader.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     require!(alliance_partner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
 
-    // Record battle start time
-    attacker.battle_start_time = Some(now);
-    alliance_leader.battle_start_time = Some(now);
-    alliance_partner.battle_start_time = Some(now);
+//     // Record battle start time
+//     attacker.battle_start_time = Some(now);
+//     alliance_leader.battle_start_time = Some(now);
+//     alliance_partner.battle_start_time = Some(now);
 
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-/// Starts a battle between two alliances.
-pub fn start_battle_alliance_vs_alliance(
-    ctx: Context<StartBattleAlliances>,
-) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
-    let leader_a = &mut ctx.accounts.leader_a;
-    let partner_a = &mut ctx.accounts.partner_a;
-    let leader_b = &mut ctx.accounts.leader_b;
-    let partner_b = &mut ctx.accounts.partner_b;
+// /// Starts a battle between two alliances.
+// pub fn start_battle_alliance_vs_alliance(
+//     ctx: Context<StartBattleAlliances>,
+// ) -> Result<()> {
+//     let now = Clock::get()?.unix_timestamp;
+//     let leader_a = &mut ctx.accounts.leader_a;
+//     let partner_a = &mut ctx.accounts.partner_a;
+//     let leader_b = &mut ctx.accounts.leader_b;
+//     let partner_b = &mut ctx.accounts.partner_b;
 
-    // Ensure all agents are alive
-    require!(leader_a.is_alive, GameError::AgentNotAlive);
-    require!(partner_a.is_alive, GameError::AgentNotAlive);
-    require!(leader_b.is_alive, GameError::AgentNotAlive);
-    require!(partner_b.is_alive, GameError::AgentNotAlive);
+//     // Ensure all agents are alive
+//     require!(leader_a.is_alive, GameError::AgentNotAlive);
+//     require!(partner_a.is_alive, GameError::AgentNotAlive);
+//     require!(leader_b.is_alive, GameError::AgentNotAlive);
+//     require!(partner_b.is_alive, GameError::AgentNotAlive);
 
-    // Ensure none are already in a battle
-    require!(leader_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-    require!(partner_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-    require!(leader_b.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-    require!(partner_b.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     // Ensure none are already in a battle
+//     require!(leader_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     require!(partner_a.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     require!(leader_b.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     require!(partner_b.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
 
-    // Record battle start time
-    leader_a.battle_start_time = Some(now);
-    partner_a.battle_start_time = Some(now);
-    leader_b.battle_start_time = Some(now);
-    partner_b.battle_start_time = Some(now);
+//     // Record battle start time
+//     leader_a.battle_start_time = Some(now);
+//     partner_a.battle_start_time = Some(now);
+//     leader_b.battle_start_time = Some(now);
+//     partner_b.battle_start_time = Some(now);
 
-    // Optionally emit an event
-    // emit!(BattleStarted { ... });
+//     // Optionally emit an event
+//     // emit!(BattleStarted { ... });
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-/// Starts a simple battle between two agents.
-pub fn start_battle_simple(
-    ctx: Context<StartBattleSimple>,
-) -> Result<()> {
-    let now = Clock::get()?.unix_timestamp;
-    let winner = &mut ctx.accounts.winner;
-    let loser = &mut ctx.accounts.loser;
+// /// Starts a simple battle between two agents.
+// pub fn start_battle_simple(
+//     ctx: Context<StartBattleSimple>,
+// ) -> Result<()> {
+//     let now = Clock::get()?.unix_timestamp;
+//     let winner = &mut ctx.accounts.winner;
+//     let loser = &mut ctx.accounts.loser;
 
-    // Ensure both agents are alive
-    require!(winner.is_alive, GameError::AgentNotAlive);
-    require!(loser.is_alive, GameError::AgentNotAlive);
+//     // Ensure both agents are alive
+//     require!(winner.is_alive, GameError::AgentNotAlive);
+//     require!(loser.is_alive, GameError::AgentNotAlive);
 
-    // Ensure neither agent is already in a battle
-    require!(winner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
-    require!(loser.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     // Ensure neither agent is already in a battle
+//     require!(winner.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
+//     require!(loser.battle_start_time.is_none(), GameError::BattleAlreadyStarted);
 
-    // Record battle start time
-    winner.battle_start_time = Some(now);
-    loser.battle_start_time = Some(now);
+//     // Record battle start time
+//     winner.battle_start_time = Some(now);
+//     loser.battle_start_time = Some(now);
 
-    // Optionally emit an event
-    // emit!(BattleStarted { ... });
+//     // Optionally emit an event
+//     // emit!(BattleStarted { ... });
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 /// Resolves a battle between an agent and an alliance after cooldown.
 pub fn resolve_battle_agent_vs_alliance(
@@ -242,13 +242,13 @@ pub fn resolve_battle_alliance_vs_alliance(
     // require!(now >= battle_start_b + ALLIANCE_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
-    leader_a.validate_attack(now)?;
+    // leader_a.validate_attack(now)?;
     leader_a.last_attack = now;
-    partner_a.validate_attack(now)?;
+    // partner_a.validate_attack(now)?;
     partner_a.last_attack = now;
-    leader_b.validate_attack(now)?;
+    // leader_b.validate_attack(now)?;
     leader_b.last_attack = now;
-    partner_b.validate_attack(now)?;
+    // partner_b.validate_attack(now)?;
     partner_b.last_attack = now;
 
     // Clear battle_start_time after resolution
@@ -361,8 +361,8 @@ pub fn resolve_battle_simple(
     // require!(now >= battle_start + SIMPLE_BATTLE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
-    winner.validate_attack(now)?;
-    loser.validate_attack(now)?;
+    // winner.validate_attack(now)?;
+    // loser.validate_attack(now)?;
     winner.last_attack = now;
     loser.last_attack = now;
 
