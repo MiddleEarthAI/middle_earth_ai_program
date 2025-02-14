@@ -116,7 +116,7 @@ pub fn resolve_battle_agent_vs_alliance(
 
     // Ensure battle has started and cooldown has passed
     let battle_start = single_agent.battle_start_time.ok_or(GameError::BattleNotStarted)?;
-    require!(now >= battle_start + AGENT_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
+    // require!(now >= battle_start + AGENT_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
     single_agent.validate_attack(now)?;
@@ -238,8 +238,8 @@ pub fn resolve_battle_alliance_vs_alliance(
     // Ensure battle has started and cooldown has passed
     let battle_start_a = leader_a.battle_start_time.ok_or(GameError::BattleNotStarted)?;
     let battle_start_b = leader_b.battle_start_time.ok_or(GameError::BattleNotStarted)?;
-    require!(now >= battle_start_a + ALLIANCE_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
-    require!(now >= battle_start_b + ALLIANCE_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
+    // require!(now >= battle_start_a + ALLIANCE_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
+    // require!(now >= battle_start_b + ALLIANCE_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
     leader_a.validate_attack(now)?;
@@ -358,7 +358,7 @@ pub fn resolve_battle_simple(
 
     // Ensure battle has started and cooldown has passed
     let battle_start = loser.battle_start_time.ok_or(GameError::BattleNotStarted)?;
-    require!(now >= battle_start + SIMPLE_BATTLE_COOLDOWN, GameError::BattleNotReadyToResolve);
+    // require!(now >= battle_start + SIMPLE_BATTLE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
     winner.validate_attack(now)?;
