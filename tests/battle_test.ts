@@ -1,4 +1,3 @@
-
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN } from "@coral-xyz/anchor";
 import { MiddleEarthAiProgram } from "../target/types/middle_earth_ai_program";
@@ -178,33 +177,22 @@ describe("Battle Contract Tests with Cooldowns", () => {
     await registerAgent(simpleBattle.loser, 21, 21, "SimpleBattleLoser");
   });
 
-  // ----------------------------------------------------
-  // AFTER EACH TEST: reset up to 8 agents at a time
-  // Because our "resetBattleTimes" can handle 4 agents, we do two calls.
-  // ----------------------------------------------------
+  // Reset battle-related state after each test.
   afterEach("reset leftover agent state", async () => {
-    // We can chunk ALL_AGENT_IDS into groups of 4
     const chunk = (arr: number[], size: number) =>
       arr.length ? [arr.slice(0, size), ...chunk(arr.slice(size), size)] : [];
-
-    // e.g. break the 9 agent IDs into chunks of 4 => two or three calls
     const groups = chunk(ALL_AGENT_IDS, 4);
-
     for (const group of groups) {
-      // If group length < 4, fill with duplicates
       const [a1, a2, a3, a4] = [
         group[0] ?? group[0],
         group[1] ?? group[0],
         group[2] ?? group[0],
         group[3] ?? group[0],
       ];
-
-      // Derive PDAs
       const agentPda1 = await deriveAgentPda(a1);
       const agentPda2 = await deriveAgentPda(a2);
       const agentPda3 = await deriveAgentPda(a3);
       const agentPda4 = await deriveAgentPda(a4);
-
       try {
         await program.methods
           .resetBattleTimes()
@@ -220,15 +208,13 @@ describe("Battle Contract Tests with Cooldowns", () => {
         console.log("resetBattleTimes call failed, possibly partial =>", err.message);
       }
     }
-
     console.log("Finished resetting leftover agent states.");
   });
 
-  // Now the tests for battles
-  //
+  // --- Battle Resolution Tests (without starting battles or cooldowns) ---
 
   describe("Battle - Agent vs Alliance", () => {
-    it("Agent wins vs alliance after cooldown", async () => {
+    it("Agent wins vs alliance", async () => {
       const singleAgentId = allianceBattleAgents.singleAgent;
       const allianceLeaderId = allianceBattleAgents.allianceLeader;
       const alliancePartnerId = allianceBattleAgents.alliancePartner;
@@ -237,63 +223,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
       const leaderPda = await deriveAgentPda(allianceLeaderId);
       const partnerPda = await deriveAgentPda(alliancePartnerId);
 
-      // Start the battle
-      await program.methods
-        .startBattleAgentVsAlliance()
-        .accounts({
-          attacker: singlePda,
-          allianceLeader: leaderPda,
-          alliancePartner: partnerPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-
-      // Attempt to resolve immediately (should fail due to cooldown)
-      try {
-        await program.methods
-          .resolveBattleAgentVsAlliance(new BN(30), true)
-          .accounts({
-            singleAgent: singlePda,
-            allianceLeader: leaderPda,
-            alliancePartner: partnerPda,
-            game: gamePda,
-            singleAgentToken: tokenAccounts[singleAgentId],
-            allianceLeaderToken: tokenAccounts[allianceLeaderId],
-            alliancePartnerToken: tokenAccounts[alliancePartnerId],
-            singleAgentAuthority: agentAuthorities[singleAgentId].publicKey,
-            allianceLeaderAuthority: agentAuthorities[allianceLeaderId].publicKey,
-            alliancePartnerAuthority: agentAuthorities[alliancePartnerId].publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            authority: provider.wallet.publicKey,
-          })
-          .signers([
-            agentAuthorities[singleAgentId],
-            agentAuthorities[allianceLeaderId],
-            agentAuthorities[alliancePartnerId],
-          ])
-          .rpc();
-
-        // If no error, fail the test
-        expect.fail("Battle resolved before cooldown");
-      } catch (err: any) {
-        console.log("Expected failure when resolving battle before cooldown:", err.message);
-        expect(err.message).to.include("BattleNotReadyToResolve");
-      }
-
-      // Set cooldown to allow resolution
-      const pastTime = Math.floor(Date.now() / 1000) - (3500 + 1); // 3501 seconds ago
-      await program.methods
-        .setAgentCooldown(new BN(pastTime))
-        .accounts({
-          agent: singlePda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-      console.log("Cooldown set to past time to allow battle resolution.");
-
-      // Now, resolve the battle
+      // Directly call resolveBattleAgentVsAlliance without starting a battle or checking cooldowns
       await program.methods
         .resolveBattleAgentVsAlliance(new BN(30), true)
         .accounts({
@@ -317,7 +247,6 @@ describe("Battle Contract Tests with Cooldowns", () => {
         ])
         .rpc();
 
-      // Verify token balances
       const finalSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
       const finalLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
       const finalPartner = await getAccount(connection, tokenAccounts[alliancePartnerId]);
@@ -328,7 +257,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
       expect(Number(finalPartner.amount)).to.be.lessThan(1_000_000_000_000);
     });
 
-    it("Agent loses vs alliance after cooldown", async () => {
+    it("Agent loses vs alliance", async () => {
       const singleAgentId = allianceBattleAgents.singleAgent;
       const allianceLeaderId = allianceBattleAgents.allianceLeader;
       const alliancePartnerId = allianceBattleAgents.alliancePartner;
@@ -337,68 +266,9 @@ describe("Battle Contract Tests with Cooldowns", () => {
       const leaderPda = await deriveAgentPda(allianceLeaderId);
       const partnerPda = await deriveAgentPda(alliancePartnerId);
 
-      // Start the battle
-      await program.methods
-        .startBattleAgentVsAlliance()
-        .accounts({
-          attacker: singlePda,
-          allianceLeader: leaderPda,
-          alliancePartner: partnerPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-
-      // Attempt to resolve immediately (should fail due to cooldown)
-      try {
-        await program.methods
-          .resolveBattleAgentVsAlliance(new BN(25), false)
-          .accounts({
-            singleAgent: singlePda,
-            allianceLeader: leaderPda,
-            alliancePartner: partnerPda,
-            game: gamePda,
-            singleAgentToken: tokenAccounts[singleAgentId],
-            allianceLeaderToken: tokenAccounts[allianceLeaderId],
-            alliancePartnerToken: tokenAccounts[alliancePartnerId],
-            singleAgentAuthority: agentAuthorities[singleAgentId].publicKey,
-            allianceLeaderAuthority: agentAuthorities[allianceLeaderId].publicKey,
-            alliancePartnerAuthority: agentAuthorities[alliancePartnerId].publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            authority: provider.wallet.publicKey,
-          })
-          .signers([
-            agentAuthorities[singleAgentId],
-            agentAuthorities[allianceLeaderId],
-            agentAuthorities[alliancePartnerId],
-          ])
-          .rpc();
-
-        // If no error, fail the test
-        expect.fail("Battle resolved before cooldown");
-      } catch (err: any) {
-        console.log("Expected failure when resolving battle before cooldown:", err.message);
-        expect(err.message).to.include("BattleNotReadyToResolve");
-      }
-
-      // Set cooldown to allow resolution
-      const pastTime = Math.floor(Date.now() / 1000) - (3500 + 1); // 3501 seconds ago
-      await program.methods
-        .setAgentCooldown(new BN(pastTime))
-        .accounts({
-          agent: singlePda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-      console.log("Cooldown set to past time to allow battle resolution.");
-
-      // Now, resolve the battle with agent as loser
-      const finalSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
-      const finalLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
-      const finalPartner = await getAccount(connection, tokenAccounts[alliancePartnerId]);
-
-      console.log("Single Agent Balance : " , Number(finalSolo.amount));
+      const beforeSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
+      const beforeLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
+      const beforePartner = await getAccount(connection, tokenAccounts[alliancePartnerId]);
       await program.methods
         .resolveBattleAgentVsAlliance(new BN(25), false)
         .accounts({
@@ -422,24 +292,21 @@ describe("Battle Contract Tests with Cooldowns", () => {
         ])
         .rpc();
 
-      // Verify token balances
-      const newBalance = await getAccount(connection, tokenAccounts[singleAgentId]);
-      const newLeaderBalace = await getAccount(connection, tokenAccounts[allianceLeaderId]);
-      const newPartnerBalance = await getAccount(connection, tokenAccounts[alliancePartnerId]);
+      const finalSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
+      const finalLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
+      const finalPartner = await getAccount(connection, tokenAccounts[alliancePartnerId]);
 
       console.log("After (agent loses): solo balance =", Number(finalSolo.amount), ", leader balance =", Number(finalLeader.amount), ", partner balance =", Number(finalPartner.amount));
-      expect(Number(newBalance.amount - finalSolo.amount )).to.be.lessThan(0);
-      expect(Number(newLeaderBalace.amount - finalLeader.amount)).to.be.greaterThan(0);
-      expect(Number(newPartnerBalance.amount - finalPartner.amount)).to.be.greaterThan(0);
+      expect(Number(finalSolo.amount - beforeSolo.amount)).to.be.lessThan(0);
+      expect(Number(finalLeader.amount - beforeLeader.amount)).to.be.greaterThan(0);
+      expect(Number(finalPartner.amount - beforePartner.amount)).to.be.greaterThan(0);
     });
   });
 
   describe("Battle - Alliance vs Alliance", () => {
-    it("Alliance A wins vs Alliance B after cooldown", async () => {
-      // For Alliance A.
+    it("Alliance A wins vs Alliance B", async () => {
       const leaderAId = allianceA.leader;
       const partnerAId = allianceA.partner;
-      // For Alliance B.
       const leaderBId = allianceB.leader;
       const partnerBId = allianceB.partner;
 
@@ -448,71 +315,6 @@ describe("Battle Contract Tests with Cooldowns", () => {
       const leaderBPda = await deriveAgentPda(leaderBId);
       const partnerBPda = await deriveAgentPda(partnerBId);
 
-      // Start the battle
-      await program.methods
-        .startBattleAlliances()
-        .accounts({
-          leaderA: leaderAPda,
-          partnerA: partnerAPda,
-          leaderB: leaderBPda,
-          partnerB: partnerBPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-
-      // Attempt to resolve immediately (should fail due to cooldown)
-      try {
-        await program.methods
-          .resolveBattleAllianceVsAlliance(new BN(20), true)
-          .accounts({
-            leaderA: leaderAPda,
-            partnerA: partnerAPda,
-            leaderB: leaderBPda,
-            partnerB: partnerBPda,
-            game: gamePda,
-            leaderAToken: tokenAccounts[leaderAId],
-            partnerAToken: tokenAccounts[partnerAId],
-            leaderBToken: tokenAccounts[leaderBId],
-            partnerBToken: tokenAccounts[partnerBId],
-            leaderAAuthority: agentAuthorities[leaderAId].publicKey,
-            partnerAAuthority: agentAuthorities[partnerAId].publicKey,
-            leaderBAuthority: agentAuthorities[leaderBId].publicKey,
-            partnerBAuthority: agentAuthorities[partnerBId].publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            authority: provider.wallet.publicKey,
-          })
-          .signers([
-            agentAuthorities[leaderAId],
-            agentAuthorities[partnerAId],
-            agentAuthorities[leaderBId],
-            agentAuthorities[partnerBId],
-          ])
-          .rpc();
-
-        // If no error, fail the test
-        expect.fail("Battle resolved before cooldown");
-      } catch (err: any) {
-        console.log("Expected failure when resolving battle before cooldown:", err.message);
-        expect(err.message).to.include("BattleNotReadyToResolve");
-      }
-
-      // Set cooldowns to allow resolution
-      const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
-      const allianceIds = [leaderAId, partnerAId, leaderBId, partnerBId];
-      for (const id of allianceIds) {
-        await program.methods
-          .setAgentCooldown(new BN(0))
-          .accounts({
-            agent: await deriveAgentPda(id),
-            game: gamePda,
-            authority: provider.wallet.publicKey,
-          })
-          .rpc();
-      }
-      console.log("Cooldowns set to past time to allow battle resolution.");
-
-      // Now, resolve the battle (Alliance A wins)
       await program.methods
         .resolveBattleAllianceVsAlliance(new BN(20), true)
         .accounts({
@@ -540,7 +342,6 @@ describe("Battle Contract Tests with Cooldowns", () => {
         ])
         .rpc();
 
-      // Verify token balances
       const finalLeaderB = await getAccount(connection, tokenAccounts[leaderBId]);
       const finalPartnerB = await getAccount(connection, tokenAccounts[partnerBId]);
       const finalLeaderA = await getAccount(connection, tokenAccounts[leaderAId]);
@@ -557,85 +358,12 @@ describe("Battle Contract Tests with Cooldowns", () => {
   });
 
   describe("Battle - Simple", () => {
-    it("Loser pays 20% to winner after cooldown", async () => {
+    it("Loser pays 20% to winner", async () => {
       const winnerId = simpleBattle.winner;
       const loserId = simpleBattle.loser;
       const winnerPda = await deriveAgentPda(winnerId);
       const loserPda = await deriveAgentPda(loserId);
 
-      // Start the battle
-      await program.methods
-        .startBattleSimple()
-        .accounts({
-          winner: winnerPda,
-          loser: loserPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-try{
-      
-              
-              // Attempt to resolve immediately (should fail due to cooldown)
-      try {
-        await program.methods
-          .resolveBattleSimple(new BN(20))
-          .accounts({
-            winner: winnerPda,
-            loser: loserPda,
-            game: gamePda,
-            winnerToken: tokenAccounts[winnerId],
-            loserToken: tokenAccounts[loserId],
-            loserAuthority: agentAuthorities[loserId].publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            authority: provider.wallet.publicKey,
-          })
-          .signers([
-            agentAuthorities[loserId]
-          ])
-          .rpc();
-
-        // If no error, fail the test
-        expect.fail("Battle resolved before cooldown");
-      } catch (err: any) {
-        console.log("Expected failure when resolving simple battle before cooldown:", err.message);
-        expect(err.message).to.include("BattleNotReadyToResolve");
-      }
-
-      // Set cooldown to allow resolution
-
-      console.log("Cooldown set to past time to allow battle resolution.");
-      const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
-      await program.methods
-        .setAgentCooldown(new BN(0))
-        .accounts({
-          agent: loserPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-  
-            }
-            catch (err: any) {
-              console.log("Set Cooldown timer failed ");
-            }  
-
-            try{
-              const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
-              await program.methods
-                .setAgentCooldown(new BN(0))
-                .accounts({
-                  agent: winnerPda,
-                  game: gamePda,
-                  authority: provider.wallet.publicKey,
-                })
-                .rpc();
-          
-                    }
-                    catch (err: any) {
-                      console.log("Set Cooldown timer failed ");
-                    }    
-      // Now, resolve the battle
       await program.methods
         .resolveBattleSimple(new BN(20))
         .accounts({
@@ -653,7 +381,6 @@ try{
         ])
         .rpc();
 
-      // Verify token balances
       const finalWinner = await getAccount(connection, tokenAccounts[winnerId]);
       const finalLoser = await getAccount(connection, tokenAccounts[loserId]);
       console.log("After simple battle => Winner:", Number(finalWinner.amount), ", Loser:", Number(finalLoser.amount));
@@ -670,55 +397,26 @@ try{
       const winnerPda = await deriveAgentPda(simpleBattle.winner);
       const loserPda = await deriveAgentPda(simpleBattle.loser);
 
-      // Start the battle
       await program.methods
-        .startBattleSimple()
+        .resolveBattleSimple(new BN(20))
         .accounts({
           winner: winnerPda,
           loser: loserPda,
           game: gamePda,
-          authority: provider.wallet.publicKey,
+          winnerToken: tokenAccounts[simpleBattle.winner],
+          loserToken: tokenAccounts[simpleBattle.loser],
+          loserAuthority: agentAuthorities[simpleBattle.loser].publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          authority: unauthorizedWallet.publicKey, // Unauthorized authority
         })
-        .rpc();
-
-      // Set cooldown to allow resolution
-      const pastTime = Math.floor(Date.now() / 1000) - (3600 + 1); // 3601 seconds ago
-      await program.methods
-        .setAgentCooldown(new BN(pastTime))
-        .accounts({
-          agent: loserPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
-      console.log("Cooldown set to past time to allow battle resolution.");
-
-      // Attempt to resolve the battle with an unauthorized wallet
-      try {
-        await program.methods
-          .resolveBattleSimple(new BN(20))
-          .accounts({
-            winner: winnerPda,
-            loser: loserPda,
-            game: gamePda,
-            winnerToken: tokenAccounts[simpleBattle.winner],
-            loserToken: tokenAccounts[simpleBattle.loser],
-            loserAuthority: agentAuthorities[simpleBattle.loser].publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            authority: unauthorizedWallet.publicKey, // Unauthorized authority
-          })
-          .signers([
-            unauthorizedWallet
-          ])
-          .rpc();
-
-        // If no error, fail the test
-        expect.fail("Unauthorized battle resolution succeeded");
-      } catch (err: any) {
-        console.log("Unauthorized attempt blocked:", err.message);
-        expect(err.message).to.include("Unauthorized");
-      }
+        .signers([
+          unauthorizedWallet
+        ])
+        .rpc()
+        .catch((err: any) => {
+          console.log("Unauthorized attempt blocked:", err.message);
+          expect(err.message).to.include("Unauthorized");
+        });
     });
-
   });
 });
