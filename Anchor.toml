@@ -19,4 +19,4 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 # Script for running TypeScript-based tests
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/battle_test.ts"
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

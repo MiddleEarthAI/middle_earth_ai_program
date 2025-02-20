@@ -161,7 +161,6 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
 
     add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
 
-    // Reset cooldown to 1 hour on each new stake
     let now = Clock::get()?.unix_timestamp;
     stake_info.cooldown_ends_at = now + ONE_HOUR;
 

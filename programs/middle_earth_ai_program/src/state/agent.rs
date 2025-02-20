@@ -38,7 +38,6 @@ pub struct Agent {
 
     // Token/staking info
     pub token_balance: u64,            // Deprecated if querying real-time vault balance
-    pub staked_balance: u64,           // Total tokens staked
     pub last_reward_claim: i64,        // Last reward claim timestamp
     pub total_shares: u128,            // Total shares representing staking pool ownership
     pub last_attack: i64,
@@ -72,20 +71,7 @@ impl Agent {
         Ok(())
     }
 
-    pub fn validate_attack(&self, now: i64) -> Result<()> {
-        // require!(now >= self.last_attack + ACTION_COOLDOWN_SECS, GameError::BattleCooldown);
-        Ok(())
-    }
 
-    pub fn validate_ignore(&self, now: i64) -> Result<()> {
-        require!(now >= self.last_ignore + ACTION_COOLDOWN_SECS, GameError::IgnoreCooldown);
-        Ok(())
-    }
-
-    pub fn validate_alliance(&self, now: i64) -> Result<()> {
-        require!(now >= self.last_alliance + ACTION_COOLDOWN_SECS, GameError::AllianceCooldown);
-        Ok(())
-    }
     pub fn set_attack_cooldown(&mut self, now: i64) {
         self.last_attack = now;
         self.next_move_time = now + COOLDOWN_SECS;

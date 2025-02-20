@@ -33,7 +33,6 @@ pub fn resolve_battle_agent_vs_alliance(
     // require!(now >= battle_start + AGENT_VS_ALLIANCE_COOLDOWN, GameError::BattleNotReadyToResolve);
 
     // Update last_attack cooldown
-    single_agent.validate_attack(now)?;
     single_agent.last_attack = now;
     alliance_leader.last_attack = now;
     alliance_partner.last_attack = now;
