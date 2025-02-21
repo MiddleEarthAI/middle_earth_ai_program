@@ -31,7 +31,7 @@ pub struct Agent {
     pub is_alive: bool,                // Whether Agent is alive
     pub last_move: i64,                // Timestamp of last movement
     pub last_battle: i64,              // Timestamp of last battle
-    
+    pub staked_balance : u128,
     // Alliance/ignore info
     pub alliance_with: Option<Pubkey>,     // ID of agent allied with
     pub alliance_timestamp: i64,       // When alliance was formed
