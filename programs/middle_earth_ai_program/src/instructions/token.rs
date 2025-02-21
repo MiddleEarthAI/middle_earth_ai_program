@@ -194,10 +194,10 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         GameError::Unauthorized
     );
     let now = Clock::get()?.unix_timestamp;
-    require!(
-        now >= stake_info.cooldown_ends_at,
-        GameError::CooldownNotOver
-    );
+    // require!(
+    //     now >= stake_info.cooldown_ends_at,
+    //     GameError::CooldownNotOver
+    // );
 
     // Borrow the vault data once
     let vault_balance = {
@@ -260,36 +260,6 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     Ok(())
 }
 
-/// --------------------------------------------
-/// INITIATE COOLDOWN
-/// --------------------------------------------
-pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
-    let stake_info = &mut ctx.accounts.stake_info;
-
-    let now = Clock::get()?.unix_timestamp;
-
-    // If there's already a future cooldown, throw an error.
-    require!(
-        now >= stake_info.cooldown_ends_at,
-        GameError::CooldownAlreadyActive
-    );
-    require_keys_eq!(
-        stake_info.staker,
-        ctx.accounts.authority.key(),
-        GameError::Unauthorized
-    );
-    // Set new cooldown for 2 hours
-    stake_info.cooldown_ends_at = now + TWO_HOURS;
-    stake_info.is_initialized = true;
-
-    // Optionally emit an event
-    emit!(CooldownInitiated {
-        stake_info: stake_info.key(),
-        cooldown_ends_at: stake_info.cooldown_ends_at,
-    });
-
-    Ok(())
-}
 
 /// --------------------------------------------
 /// CLAIM REWARDS
@@ -310,16 +280,16 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
 
     let now = Clock::get()?.unix_timestamp;
 
-    // Uncomment and adjust cooldown logic as needed
-    require!(
-        now >= stake_info.cooldown_ends_at,
-        GameError::CooldownNotOver
-    );
+    // // Uncomment and adjust cooldown logic as needed
+    // require!(
+    //     now >= stake_info.cooldown_ends_at,
+    //     GameError::CooldownNotOver
+    // );
 
-    require!(
-        now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
-        GameError::ClaimCooldown
-    );
+    // require!(
+    //     now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
+    //     GameError::ClaimCooldown
+    // );
 
     let time_elapsed = now - stake_info.last_reward_timestamp + 1;
 
@@ -474,26 +444,26 @@ pub struct UnstakeTokens<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-#[derive(Accounts)]
-pub struct InitiateCooldown<'info> {
-    #[account(mut, has_one = game)]
-    pub agent: Account<'info, Agent>,
+// #[derive(Accounts)]
+// pub struct InitiateCooldown<'info> {
+//     #[account(mut, has_one = game)]
+//     pub agent: Account<'info, Agent>,
 
-    #[account(mut)]
-    pub game: Account<'info, Game>,
+//     #[account(mut)]
+//     pub game: Account<'info, Game>,
 
-    #[account(
-        mut,
-        seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
-        bump
-    )]
-    pub stake_info: Account<'info, StakeInfo>,
+//     #[account(
+//         mut,
+//         seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
+//         bump
+//     )]
+//     pub stake_info: Account<'info, StakeInfo>,
 
-    #[account(mut)]
-    pub authority: Signer<'info>, // The user who initiates cooldown
+//     #[account(mut)]
+//     pub authority: Signer<'info>, // The user who initiates cooldown
 
-    pub system_program: Program<'info, System>,
-}
+//     pub system_program: Program<'info, System>,
+// }
 
 #[derive(Accounts)]
 pub struct ClaimRewards<'info> {

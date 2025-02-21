@@ -104,9 +104,9 @@ pub mod middle_earth_ai_program {
     }
 
     /// Allows a staker to initiate a 2-hour cooldown before unstaking.
-    pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
-        token::initiate_cooldown(ctx)
-    }
+    // pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
+    //     token::initiate_cooldown(ctx)
+   // }
     //    /// Starts a battle between an agent and an alliance.
     //    pub fn start_battle_agent_vs_alliance(ctx: Context<StartBattleAgentVsAlliance>) -> Result<()> {
     //     battle::start_battle_agent_vs_alliance(ctx)

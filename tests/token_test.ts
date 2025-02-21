@@ -428,21 +428,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   // ----------------------------------------------------------------
   // 8) Initiate a 2-hour Cooldown
   // ----------------------------------------------------------------
-  it("Staker1: Initiates cooldown", async () => {
-    await program.methods
-      .initiateCooldown()
-      .accounts({
-        agent: agentPda,
-        game: gamePda,
-        stakeInfo: stakeInfoPdaStaker1,
-        authority: staker1.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
 
-    const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-    console.log("Cooldown started => cooldown_ends_at:", stakeInfo.cooldownEndsAt.toNumber());
-  });
 
   // ----------------------------------------------------------------
   // 9) Partially Unstake EXACT 2000 tokens
