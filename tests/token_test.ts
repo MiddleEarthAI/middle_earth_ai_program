@@ -714,6 +714,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
 
   it("Staker1: Stake then balance increase for the agent and then unstake", async () => {
     // Stake an additional 8,000 tokens
+    const initialiBalance =  await getTokenBalance(staker1TokenAccount);
     await program.methods
       .stakeTokens(new BN(8000))
       .accounts({
@@ -728,7 +729,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       })
       .rpc();
       const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-      console.log(stakeInfo.amount);
+      console.log("These are the shares of the staker: " , stakeInfo.shares.toNumber());
     // Now simulate an increase in the agent vault balance by minting additional tokens
     const additionalAmount = 8000; // e.g. add 2,000 tokens
     await mintTo(
@@ -740,7 +741,8 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       additionalAmount
     );
     console.log("Minted additional tokens into agent vault.");
-  
+    console.log("These are the shaers of the staker after the deposit: " , stakeInfo.shares.toNumber());
+
     // Optionally, read and log the new balance of the agent vault:
     const newVaultBalance = await getAccount(provider.connection, agentVault);
     console.log("New agent vault balance:", Number(newVaultBalance.amount));
@@ -750,7 +752,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     // const sharesNeeded = await computeSharesForExactUnstake(10000); // unstake 2000 tokens
   
     await program.methods
-      .unstakeTokens(new BN(stakeInfo.amount))
+      .unstakeTokens(new BN(1000))
       .accounts({
         agent: agentPda,
         game: gamePda,
@@ -768,6 +770,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     // Verify that staker1's token account balance increased appropriately
     const finalBalance = await getTokenBalance(staker1TokenAccount);
     console.log("Final staker1 token account balance:", finalBalance);
+    console.log("Balance Difference : ", finalBalance - initialiBalance);
   });
   
 
