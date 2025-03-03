@@ -711,4 +711,65 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     expect(Number(gameAcct.dailyRewardTokens)).to.equal(600_000);
     console.log("Daily rewards updated to 600000");
   });
+
+  it("Staker1: Stake then balance increase for the agent and then unstake", async () => {
+    // Stake an additional 8,000 tokens
+    await program.methods
+      .stakeTokens(new BN(8000))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPdaStaker1,
+        stakerSource: staker1TokenAccount,
+        agentVault: agentVault,
+        authority: staker1.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+      const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
+      console.log(stakeInfo.amount);
+    // Now simulate an increase in the agent vault balance by minting additional tokens
+    const additionalAmount = 8000; // e.g. add 2,000 tokens
+    await mintTo(
+      provider.connection,
+      gameAuthority, 
+      tokenMint,
+      agentVault,
+      gameAuthority.publicKey,
+      additionalAmount
+    );
+    console.log("Minted additional tokens into agent vault.");
+  
+    // Optionally, read and log the new balance of the agent vault:
+    const newVaultBalance = await getAccount(provider.connection, agentVault);
+    console.log("New agent vault balance:", Number(newVaultBalance.amount));
+  
+    // Now perform unstaking (this part would be as you normally test unstaking)
+    // Compute how many shares are needed for unstaking a target token amount.
+    // const sharesNeeded = await computeSharesForExactUnstake(10000); // unstake 2000 tokens
+  
+    await program.methods
+      .unstakeTokens(new BN(stakeInfo.amount))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPdaStaker1,
+        agentVault: agentVault,
+        stakerDestination: staker1TokenAccount,
+        authority: staker1.publicKey,
+        gameAuthority: gameAuthority.publicKey, // gameAuthority must sign as vault owner
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([staker1.payer, gameAuthority])
+      .rpc();
+  
+    // Verify that staker1's token account balance increased appropriately
+    const finalBalance = await getTokenBalance(staker1TokenAccount);
+    console.log("Final staker1 token account balance:", finalBalance);
+  });
+  
+
 });
+
