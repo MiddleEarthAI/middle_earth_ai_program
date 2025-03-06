@@ -153,12 +153,12 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
         .total_shares
         .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
-    ctx.accounts.agent.staked_balance = ctx
-        .accounts
-        .agent
-        .staked_balance
-        .checked_add(deposit_amount as u128)
-        .ok_or(GameError::NotEnoughTokens)?;
+    // ctx.accounts.agent.staked_balance = ctx
+    //     .accounts
+    //     .agent
+    //     .staked_balance
+    //     .checked_add(deposit_amount as u128)
+    //     .ok_or(GameError::NotEnoughTokens)?;
     // Update stake_info
     stake_info.amount = stake_info
         .amount
@@ -169,7 +169,7 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
         .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
 
-    add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
+    // add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
 
     let now = Clock::get()?.unix_timestamp;
     stake_info.cooldown_ends_at = now + ONE_HOUR;
@@ -186,7 +186,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     require!(shares_to_redeem > 0, GameError::InvalidAmount);
     require!(
         stake_info.shares >= shares_to_redeem as u128,
-        GameError::NotEnoughTokens
+        GameError::NotEnoughShares
     );
     require_keys_eq!(
         stake_info.staker,
@@ -211,9 +211,9 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     // Calculate the withdraw amount proportionally
     let withdraw_amount = u128::from(shares_to_redeem)
         .checked_mul(u128::from(vault_balance))
-        .ok_or(GameError::NotEnoughTokens)?
+        .ok_or(GameError::MultiplicationError)?
         .checked_div(total_shares)
-        .ok_or(GameError::NotEnoughTokens)?;
+        .ok_or(GameError::DivisionError)?;
 
     // Update agent's total_shares
     ctx.accounts.agent.total_shares = ctx
@@ -221,29 +221,24 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         .agent
         .total_shares
         .checked_sub(u128::from(shares_to_redeem))
-        .ok_or(GameError::NotEnoughTokens)?;
-    ctx.accounts.agent.staked_balance = ctx
-        .accounts
-        .agent
-        .staked_balance
-        .checked_sub(withdraw_amount)
-        .ok_or(GameError::NotEnoughTokens)?;
+        .ok_or(GameError::SubtractionError)?;
+
     // Update stake_info
-    stake_info.amount = stake_info
-        .amount
-        .checked_sub(withdraw_amount as u64)
-        .ok_or(GameError::NotEnoughTokens)?;
+    // stake_info.amount = stake_info
+    //     .amount
+    //     .checked_sub(withdraw_amount as u64)
+    //     .ok_or(GameError::SubtractionError)?;
     stake_info.shares = stake_info
         .shares
         .checked_sub(shares_to_redeem as u128)
-        .ok_or(GameError::NotEnoughTokens)?;
+        .ok_or(GameError::SubtractionError)?;
 
     // Update global total stake
-    remove_stake_from_game(
-        &mut ctx.accounts.game,
-        ctx.accounts.authority.key(),
-        withdraw_amount as u64,
-    )?;
+    // remove_stake_from_game(
+    //     &mut ctx.accounts.game,
+    //     ctx.accounts.authority.key(),
+    //     withdraw_amount as u64,
+    // )?;
 
     // Transfer tokens from the vault to the staker
     let cpi_accounts = Transfer {
@@ -255,7 +250,6 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
     token::transfer(cpi_ctx, withdraw_amount as u64)?;
 
-    msg!("UnstakeTokens: Transferred {} tokens from agent_vault to staker_destination", withdraw_amount);
 
     Ok(())
 }

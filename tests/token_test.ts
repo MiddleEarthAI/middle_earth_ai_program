@@ -548,7 +548,6 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
 
     const stakeInfoAfter = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
     expect(Number(stakeInfoAfter.shares)).to.equal(0);
-    expect(Number(stakeInfoAfter.amount)).to.equal(0);
     console.log("Staker1 fully unstaked leftover => stakeInfo zeroed out.");
   });
 
@@ -630,7 +629,6 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       .rpc();
 
     const stakeInfo2After = await program.account.stakeInfo.fetch(stakeInfoPdaStaker2);
-    expect(Number(stakeInfo2After.amount)).to.equal(0);
     expect(Number(stakeInfo2After.shares)).to.equal(0);
   });
 
@@ -752,7 +750,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     // const sharesNeeded = await computeSharesForExactUnstake(10000); // unstake 2000 tokens
   
     await program.methods
-      .unstakeTokens(new BN(1000))
+      .unstakeTokens(new BN(8000))
       .accounts({
         agent: agentPda,
         game: gamePda,

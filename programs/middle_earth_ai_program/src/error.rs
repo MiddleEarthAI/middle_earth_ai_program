@@ -6,6 +6,17 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum GameError {
+     #[msg("Not Enough Shares")]
+     NotEnoughShares,
+     #[msg("Multiplication Error")]
+     MultiplicationError,
+     #[msg("Division Error")]
+     DivisionError,
+     #[msg("Subtraction Error")]
+     SubtractionError,
+     #[msg("Addition Error")]
+     AdditionError,
+ 
     #[msg("Agent is not alive.")]
     AgentNotAlive,
 
