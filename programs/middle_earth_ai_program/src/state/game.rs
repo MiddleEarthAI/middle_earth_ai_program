@@ -1,20 +1,20 @@
-use anchor_lang::prelude::*;
 use crate::state::agent_info::AgentInfo;
+use anchor_lang::prelude::*;
 
 #[account]
 #[derive(Default, InitSpace)]
 pub struct Game {
-    pub game_id: u64,           // Unique identifier for the game instance
-    pub authority: Pubkey,      // Authority that controls the game
-    pub token_mint: Pubkey,     // (Optional) Token mint used in the game
-    pub rewards_vault: Pubkey,  // (Optional) Vault that holds staking rewards
-    pub map_diameter: u32,      // Diameter of the circular map
-    pub is_active: bool,        // Whether the game is currently active
-    pub last_update: i64,       // Timestamp of last game state update
-    pub bump: u8,               // PDA bump seed
+    pub game_id: u64,             // Unique identifier for the game instance
+    pub authority: Pubkey,        // Authority that controls the game
+    pub token_mint: Pubkey,       // (Optional) Token mint used in the game
+    pub rewards_vault: Pubkey,    // (Optional) Vault that holds staking rewards
+    pub map_diameter: u32,        // Diameter of the circular map
+    pub is_active: bool,          // Whether the game is currently active
+    pub last_update: i64,         // Timestamp of last game state update
+    pub bump: u8,                 // PDA bump seed
     pub daily_reward_tokens: u64, // Number of tokens to distribute daily
     #[max_len(5)]
-    pub alliances: Vec<Alliance>, 
+    pub alliances: Vec<Alliance>,
 
     #[max_len(4)]
     pub agents: Vec<AgentInfo>,
@@ -41,10 +41,10 @@ impl Space for StakerStake {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Default)]
 pub struct Alliance {
-    pub agent1: Pubkey,  
-    pub agent2: Pubkey,  
-    pub formed_at: i64,  
-    pub is_active: bool, 
+    pub agent1: Pubkey,
+    pub agent2: Pubkey,
+    pub formed_at: i64,
+    pub is_active: bool,
 }
 
 impl Space for Alliance {

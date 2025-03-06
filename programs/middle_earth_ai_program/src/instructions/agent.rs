@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
-use crate::state::{Agent, Game};
 use crate::error::GameError;
+use crate::state::{Agent, Game};
+use anchor_lang::prelude::*;
 
 pub fn register_agent(
     ctx: Context<RegisterAgent>,
@@ -55,10 +55,12 @@ pub fn register_agent(
     agent_account.battle_start_time = None;
 
     // Register the agent in the global list with the provided name.
-    game_account.agents.push(crate::state::agent_info::AgentInfo {
-        key: agent_key,
-        name,
-    });
+    game_account
+        .agents
+        .push(crate::state::agent_info::AgentInfo {
+            key: agent_key,
+            name,
+        });
 
     Ok(())
 }
@@ -79,10 +81,7 @@ pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
 
 /// Sets an agent's cooldown, e.g. for testing or manual override.
 /// **Access Control:** Only the game authority may call this instruction.
-pub fn set_agent_cooldown(
-    ctx: Context<SetAgentCooldown>,
-    new_next_move_time: i64,
-) -> Result<()> {
+pub fn set_agent_cooldown(ctx: Context<SetAgentCooldown>, new_next_move_time: i64) -> Result<()> {
     // Only allow if the signer is the game authority.
     require!(
         ctx.accounts.authority.key() == ctx.accounts.game.authority,

@@ -1,7 +1,7 @@
-use anchor_lang::prelude::*;
-use crate::state::{Agent, Game, TerrainType};
 use crate::error::GameError;
-use crate::events::*; 
+use crate::events::*;
+use crate::state::{Agent, Game, TerrainType};
+use anchor_lang::prelude::*;
 
 pub fn move_agent(
     ctx: Context<MoveAgent>,
@@ -14,7 +14,10 @@ pub fn move_agent(
     let now = Clock::get()?.unix_timestamp;
 
     // Updated Access Control: Only the game authority can move agents.
-    require!(game.authority == ctx.accounts.authority.key(), GameError::Unauthorized);
+    require!(
+        game.authority == ctx.accounts.authority.key(),
+        GameError::Unauthorized
+    );
 
     // Check that the agent is alive.
     require!(agent.is_alive, GameError::AgentNotAlive);
@@ -28,7 +31,7 @@ pub fn move_agent(
     agent.last_move = now;
 
     // Apply terrain-based cooldown.
-    agent.apply_terrain_move_cooldown(terrain, now); 
+    agent.apply_terrain_move_cooldown(terrain, now);
 
     // Emit an event indicating the move.
     emit!(AgentMoved {
@@ -52,5 +55,5 @@ pub struct MoveAgent<'info> {
     pub agent: Account<'info, Agent>,
     pub game: Account<'info, Game>,
     #[account(mut)]
-    pub authority: Signer<'info>, 
+    pub authority: Signer<'info>,
 }

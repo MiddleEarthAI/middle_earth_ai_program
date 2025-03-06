@@ -1,12 +1,10 @@
 use anchor_lang::prelude::*;
 
-
 #[event]
 pub struct BattleInitiated {
     pub agent_id: u8,
     pub opponent_agent_id: u8,
 }
-
 
 #[event]
 pub struct AgentMoved {
@@ -23,4 +21,3 @@ pub struct BattleResolved {
     pub loser_id: u8,
     pub transfer_amount: u64,
 }
-

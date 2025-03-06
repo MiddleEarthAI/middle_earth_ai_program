@@ -2,21 +2,19 @@
 
 use anchor_lang::prelude::*;
 
-
-
 #[error_code]
 pub enum GameError {
-     #[msg("Not Enough Shares")]
-     NotEnoughShares,
-     #[msg("Multiplication Error")]
-     MultiplicationError,
-     #[msg("Division Error")]
-     DivisionError,
-     #[msg("Subtraction Error")]
-     SubtractionError,
-     #[msg("Addition Error")]
-     AdditionError,
- 
+    #[msg("Not Enough Shares")]
+    NotEnoughShares,
+    #[msg("Multiplication Error")]
+    MultiplicationError,
+    #[msg("Division Error")]
+    DivisionError,
+    #[msg("Subtraction Error")]
+    SubtractionError,
+    #[msg("Addition Error")]
+    AdditionError,
+
     #[msg("Agent is not alive.")]
     AgentNotAlive,
 
@@ -39,7 +37,7 @@ pub enum GameError {
     AllianceCooldown,
 
     #[msg("Not enough tokens for battle.")]
-    NotEnoughTokens,    
+    NotEnoughTokens,
 
     #[msg("Stake amount exceeds maximum allowed.")]
     MaxStakeExceeded,
@@ -79,10 +77,10 @@ pub enum GameError {
 
     #[msg("Agent name is too long.")]
     NameTooLong,
-   
+
     #[msg("You must wait until cooldown ends.")]
     CooldownNotOver,
-       
+
     #[msg("Game is Inactive")]
     GameNotActive,
 
@@ -97,13 +95,11 @@ pub enum GameError {
     #[msg("Insufficient rewards to complete this action.")]
     InsufficientRewards, // Added variant
     #[msg("Cooldown is already active.")]
-    CooldownAlreadyActive
-    ,
-
+    CooldownAlreadyActive,
     #[msg("Battle has not started yet ")]
-     BattleNotStarted,
-#[msg("Battle has already started ")]
-     BattleAlreadyStarted, 
-     #[msg("Battle not ready to resolve")]
-     BattleNotReadyToResolve
+    BattleNotStarted,
+    #[msg("Battle has already started ")]
+    BattleAlreadyStarted,
+    #[msg("Battle not ready to resolve")]
+    BattleNotReadyToResolve,
 }

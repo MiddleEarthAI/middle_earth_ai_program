@@ -1,39 +1,39 @@
-use anchor_lang::prelude::*;
-use crate::state::{Agent, Game};
 use crate::error::GameError;
 use crate::state::Alliance;
+use crate::state::{Agent, Game};
+use anchor_lang::prelude::*;
 
 pub fn form_alliance(ctx: Context<FormAlliance>) -> Result<()> {
     let initiator = &mut ctx.accounts.initiator;
     let target = &mut ctx.accounts.target_agent;
     let game = &mut ctx.accounts.game;
     let now = Clock::get()?.unix_timestamp;
-    
+
     // Validate that the initiator can form a new alliance
     require!(initiator.is_alive, GameError::AgentNotAlive);
     require!(target.is_alive, GameError::AgentNotAlive);
     // initiator.validate_alliance(now)?;
-    
+
     // Prevent self-alliances.
     if initiator.key() == target.key() {
         return err!(GameError::InvalidAlliancePartner);
     }
-    
+
     // Check that neither agent is already in an active alliance.
     if initiator.alliance_with.is_some() || target.alliance_with.is_some() {
         return err!(GameError::AllianceAlreadyExists);
     }
-    
+
     // Update the agents’ alliance fields.
     initiator.alliance_with = Some(target.key());
     initiator.alliance_timestamp = now;
     target.alliance_with = Some(initiator.key());
     target.alliance_timestamp = now;
-    
+
     // Search for an existing alliance between these two agents.
     if let Some(existing_alliance) = game.alliances.iter_mut().find(|a| {
-        (a.agent1 == initiator.key() && a.agent2 == target.key()) ||
-        (a.agent1 == target.key() && a.agent2 == initiator.key())
+        (a.agent1 == initiator.key() && a.agent2 == target.key())
+            || (a.agent1 == target.key() && a.agent2 == initiator.key())
     }) {
         // If the alliance exists and is inactive, reactivate it.
         if !existing_alliance.is_active {
@@ -51,10 +51,9 @@ pub fn form_alliance(ctx: Context<FormAlliance>) -> Result<()> {
             is_active: true,
         });
     }
-    
+
     Ok(())
 }
-
 
 pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
     let initiator = &mut ctx.accounts.initiator;
@@ -81,16 +80,15 @@ pub fn break_alliance(ctx: Context<BreakAlliance>) -> Result<()> {
 
     // Find the alliance in the global list and mark it as inactive.
     if let Some(alliance) = game.alliances.iter_mut().find(|a| {
-         a.is_active &&
-         ((a.agent1 == initiator.key() && a.agent2 == target.key()) ||
-          (a.agent1 == target.key() && a.agent2 == initiator.key()))
+        a.is_active
+            && ((a.agent1 == initiator.key() && a.agent2 == target.key())
+                || (a.agent1 == target.key() && a.agent2 == initiator.key()))
     }) {
-         alliance.is_active = false;
+        alliance.is_active = false;
     }
 
     Ok(())
 }
-
 
 #[derive(Accounts)]
 pub struct FormAlliance<'info> {

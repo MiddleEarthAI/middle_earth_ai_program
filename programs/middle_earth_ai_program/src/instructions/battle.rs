@@ -1,16 +1,14 @@
+use crate::error::GameError;
+use crate::events::*;
+use crate::state::{Agent, Game};
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_pack::Pack; // For unpack_from_slice
-use anchor_spl::token::{transfer, Transfer, Token};
+use anchor_spl::token::{transfer, Token, Transfer};
 use spl_token::state::Account as SplTokenAccount; // Import SPL Token Account
-use crate::state::{Agent, Game};
-use crate::error::GameError;
-use crate::events::*; 
 
 const AGENT_VS_ALLIANCE_COOLDOWN: i64 = 3500;
 const ALLIANCE_VS_ALLIANCE_COOLDOWN: i64 = 3600;
 const SIMPLE_BATTLE_COOLDOWN: i64 = 3600;
-
-
 
 /// Resolves a battle between an agent and an alliance after cooldown.
 pub fn resolve_battle_agent_vs_alliance(
@@ -43,12 +41,16 @@ pub fn resolve_battle_agent_vs_alliance(
     alliance_partner.battle_start_time = None;
 
     // Unpack token accounts
-    let single_token_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.single_agent_token.data.borrow())?;
-    let alliance_leader_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.alliance_leader_token.data.borrow())?;
-    let alliance_partner_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.alliance_partner_token.data.borrow())?;
+    let single_token_data =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.single_agent_token.data.borrow())?;
+    let alliance_leader_data =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.alliance_leader_token.data.borrow())?;
+    let alliance_partner_data =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.alliance_partner_token.data.borrow())?;
 
     // The alliance total balance is alliance_leader + alliance_partner
-    let alliance_balance = alliance_leader_data.amount
+    let alliance_balance = alliance_leader_data
+        .amount
         .checked_add(alliance_partner_data.amount)
         .ok_or(GameError::InsufficientFunds)?;
 
@@ -56,15 +58,21 @@ pub fn resolve_battle_agent_vs_alliance(
         // Single agent is winner, alliance is loser.
         // Compute the total lost amount.
         let total_lost = alliance_balance
-            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
-            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
+            .checked_mul(percent_lost as u64)
+            .ok_or(GameError::InsufficientFunds)?
+            .checked_div(100)
+            .ok_or(GameError::InsufficientFunds)?;
 
         // Distribute loss proportionally to alliance leader and partner
         let leader_deduction: u64 = if alliance_balance > 0 {
             (((total_lost as u128) * (alliance_leader_data.amount as u128))
                 / (alliance_balance as u128)) as u64
-        } else { 0 };
-        let partner_deduction = total_lost.checked_sub(leader_deduction).ok_or(GameError::InsufficientFunds)?;
+        } else {
+            0
+        };
+        let partner_deduction = total_lost
+            .checked_sub(leader_deduction)
+            .ok_or(GameError::InsufficientFunds)?;
 
         // Transfer from alliance_leader_token -> single_agent_token
         if leader_deduction > 0 {
@@ -73,7 +81,10 @@ pub fn resolve_battle_agent_vs_alliance(
                 to: ctx.accounts.single_agent_token.to_account_info(),
                 authority: ctx.accounts.alliance_leader_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_deduction)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                leader_deduction,
+            )?;
         }
         // Transfer from alliance_partner_token -> single_agent_token
         if partner_deduction > 0 {
@@ -82,7 +93,10 @@ pub fn resolve_battle_agent_vs_alliance(
                 to: ctx.accounts.single_agent_token.to_account_info(),
                 authority: ctx.accounts.alliance_partner_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_deduction)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                partner_deduction,
+            )?;
         }
 
         emit!(BattleResolved {
@@ -95,11 +109,17 @@ pub fn resolve_battle_agent_vs_alliance(
         // Compute the lost amount from the single agent's balance.
         let single_balance = single_token_data.amount;
         let lost_amount = single_balance
-            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
-            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
+            .checked_mul(percent_lost as u64)
+            .ok_or(GameError::InsufficientFunds)?
+            .checked_div(100)
+            .ok_or(GameError::InsufficientFunds)?;
 
-        let half_loss = lost_amount.checked_div(2).ok_or(GameError::InsufficientFunds)?;
-        let remainder = lost_amount.checked_sub(half_loss).ok_or(GameError::InsufficientFunds)?;
+        let half_loss = lost_amount
+            .checked_div(2)
+            .ok_or(GameError::InsufficientFunds)?;
+        let remainder = lost_amount
+            .checked_sub(half_loss)
+            .ok_or(GameError::InsufficientFunds)?;
 
         // Transfer half to alliance leader.
         if half_loss > 0 {
@@ -108,7 +128,10 @@ pub fn resolve_battle_agent_vs_alliance(
                 to: ctx.accounts.alliance_leader_token.to_account_info(),
                 authority: ctx.accounts.single_agent_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), half_loss)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                half_loss,
+            )?;
         }
         // Transfer half (or remainder) to alliance partner.
         if remainder > 0 {
@@ -117,7 +140,10 @@ pub fn resolve_battle_agent_vs_alliance(
                 to: ctx.accounts.alliance_partner_token.to_account_info(),
                 authority: ctx.accounts.single_agent_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), remainder)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                remainder,
+            )?;
         }
 
         emit!(BattleResolved {
@@ -171,25 +197,41 @@ pub fn resolve_battle_alliance_vs_alliance(
     partner_b.battle_start_time = None;
 
     // Unpack token accounts.
-    let leader_a_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_a_token.data.borrow())?;
-    let partner_a_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_a_token.data.borrow())?;
-    let leader_b_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_b_token.data.borrow())?;
-    let partner_b_data = SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_b_token.data.borrow())?;
+    let leader_a_data =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_a_token.data.borrow())?;
+    let partner_a_data =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_a_token.data.borrow())?;
+    let leader_b_data =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.leader_b_token.data.borrow())?;
+    let partner_b_data =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.partner_b_token.data.borrow())?;
 
-    let alliance_a_balance = leader_a_data.amount.checked_add(partner_a_data.amount).ok_or(GameError::InsufficientFunds)?;
-    let alliance_b_balance = leader_b_data.amount.checked_add(partner_b_data.amount).ok_or(GameError::InsufficientFunds)?;
+    let alliance_a_balance = leader_a_data
+        .amount
+        .checked_add(partner_a_data.amount)
+        .ok_or(GameError::InsufficientFunds)?;
+    let alliance_b_balance = leader_b_data
+        .amount
+        .checked_add(partner_b_data.amount)
+        .ok_or(GameError::InsufficientFunds)?;
 
     if alliance_a_wins {
         // Alliance A wins, Alliance B loses.
         let total_lost = alliance_b_balance
-            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
-            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
+            .checked_mul(percent_lost as u64)
+            .ok_or(GameError::InsufficientFunds)?
+            .checked_div(100)
+            .ok_or(GameError::InsufficientFunds)?;
 
         let leader_b_deduction: u64 = if alliance_b_balance > 0 {
-            (((total_lost as u128) * (leader_b_data.amount as u128))
-                / (alliance_b_balance as u128)) as u64
-        } else { 0 };
-        let partner_b_deduction = total_lost.checked_sub(leader_b_deduction).ok_or(GameError::InsufficientFunds)?;
+            (((total_lost as u128) * (leader_b_data.amount as u128)) / (alliance_b_balance as u128))
+                as u64
+        } else {
+            0
+        };
+        let partner_b_deduction = total_lost
+            .checked_sub(leader_b_deduction)
+            .ok_or(GameError::InsufficientFunds)?;
 
         // Transfer from alliance_b_leader_token -> alliance_a_leader_token
         if leader_b_deduction > 0 {
@@ -198,7 +240,10 @@ pub fn resolve_battle_alliance_vs_alliance(
                 to: ctx.accounts.leader_a_token.to_account_info(),
                 authority: ctx.accounts.leader_b_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_b_deduction)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                leader_b_deduction,
+            )?;
         }
         // Transfer from alliance_b_partner_token -> alliance_a_partner_token
         if partner_b_deduction > 0 {
@@ -207,7 +252,10 @@ pub fn resolve_battle_alliance_vs_alliance(
                 to: ctx.accounts.partner_a_token.to_account_info(),
                 authority: ctx.accounts.partner_b_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_b_deduction)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                partner_b_deduction,
+            )?;
         }
 
         emit!(BattleResolved {
@@ -218,14 +266,20 @@ pub fn resolve_battle_alliance_vs_alliance(
     } else {
         // Alliance A loses, Alliance B wins.
         let total_lost = alliance_a_balance
-            .checked_mul(percent_lost as u64).ok_or(GameError::InsufficientFunds)?
-            .checked_div(100).ok_or(GameError::InsufficientFunds)?;
+            .checked_mul(percent_lost as u64)
+            .ok_or(GameError::InsufficientFunds)?
+            .checked_div(100)
+            .ok_or(GameError::InsufficientFunds)?;
 
         let leader_a_deduction: u64 = if alliance_a_balance > 0 {
-            (((total_lost as u128) * (leader_a_data.amount as u128))
-                / (alliance_a_balance as u128)) as u64
-        } else { 0 };
-        let partner_a_deduction = total_lost.checked_sub(leader_a_deduction).ok_or(GameError::InsufficientFunds)?;
+            (((total_lost as u128) * (leader_a_data.amount as u128)) / (alliance_a_balance as u128))
+                as u64
+        } else {
+            0
+        };
+        let partner_a_deduction = total_lost
+            .checked_sub(leader_a_deduction)
+            .ok_or(GameError::InsufficientFunds)?;
 
         // Transfer from alliance_a_leader_token -> alliance_b_leader_token
         if leader_a_deduction > 0 {
@@ -234,7 +288,10 @@ pub fn resolve_battle_alliance_vs_alliance(
                 to: ctx.accounts.leader_b_token.to_account_info(),
                 authority: ctx.accounts.leader_a_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), leader_a_deduction)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                leader_a_deduction,
+            )?;
         }
         // Transfer from alliance_a_partner_token -> alliance_b_partner_token
         if partner_a_deduction > 0 {
@@ -243,7 +300,10 @@ pub fn resolve_battle_alliance_vs_alliance(
                 to: ctx.accounts.partner_b_token.to_account_info(),
                 authority: ctx.accounts.partner_a_authority.to_account_info(),
             };
-            transfer(CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts), partner_a_deduction)?;
+            transfer(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                partner_a_deduction,
+            )?;
         }
 
         emit!(BattleResolved {
@@ -257,10 +317,7 @@ pub fn resolve_battle_alliance_vs_alliance(
 }
 
 /// Resolves a simple battle (non-alliance) after cooldown.
-pub fn resolve_battle_simple(
-    ctx: Context<ResolveBattleSimple>,
-    percent_lost: u8,
-) -> Result<()> {
+pub fn resolve_battle_simple(ctx: Context<ResolveBattleSimple>, percent_lost: u8) -> Result<()> {
     let authority = &ctx.accounts.authority;
     let game = &ctx.accounts.game;
     require!(authority.key() == game.authority, GameError::Unauthorized);
@@ -283,8 +340,10 @@ pub fn resolve_battle_simple(
     winner.battle_start_time = None;
     loser.battle_start_time = None;
 
-    let loser_token_account = SplTokenAccount::unpack_from_slice(&ctx.accounts.loser_token.data.borrow())?;
-    let lost_amount = loser_token_account.amount
+    let loser_token_account =
+        SplTokenAccount::unpack_from_slice(&ctx.accounts.loser_token.data.borrow())?;
+    let lost_amount = loser_token_account
+        .amount
         .checked_mul(percent_lost as u64)
         .ok_or(GameError::InsufficientFunds)?
         .checked_div(100)
@@ -482,7 +541,7 @@ pub fn reset_battle_times(ctx: Context<ResetBattleTimes>) -> Result<()> {
     a1.battle_start_time = None;
     a1.last_attack = 0;
     a1.next_move_time = 0;
-    
+
     // agent2
     let a2 = &mut ctx.accounts.agent2;
     a2.battle_start_time = None;
@@ -503,4 +562,3 @@ pub fn reset_battle_times(ctx: Context<ResetBattleTimes>) -> Result<()> {
 
     Ok(())
 }
-

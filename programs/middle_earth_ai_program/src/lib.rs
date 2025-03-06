@@ -4,8 +4,8 @@ pub use instructions::token::*;
 pub mod constants;
 pub mod error;
 pub mod events;
-pub mod state;
 pub mod instructions;
+pub mod state;
 pub mod utils;
 
 // Re-export TerrainType so it appears in the IDL.
@@ -74,7 +74,7 @@ pub mod middle_earth_ai_program {
 
     pub fn resolve_battle_simple(
         ctx: Context<ResolveBattleSimple>,
-        percent_loss: u8
+        percent_loss: u8,
     ) -> Result<()> {
         battle::resolve_battle_simple(ctx, percent_loss)
     }
@@ -99,14 +99,17 @@ pub mod middle_earth_ai_program {
         token::claim_staking_rewards(ctx)
     }
 
-    pub fn update_daily_rewards(ctx: Context<UpdateDailyRewards>, new_daily_reward: u64) -> Result<()> {
+    pub fn update_daily_rewards(
+        ctx: Context<UpdateDailyRewards>,
+        new_daily_reward: u64,
+    ) -> Result<()> {
         token::update_daily_rewards(ctx, new_daily_reward)
     }
 
     /// Allows a staker to initiate a 2-hour cooldown before unstaking.
     // pub fn initiate_cooldown(ctx: Context<InitiateCooldown>) -> Result<()> {
     //     token::initiate_cooldown(ctx)
-   // }
+    // }
     //    /// Starts a battle between an agent and an alliance.
     //    pub fn start_battle_agent_vs_alliance(ctx: Context<StartBattleAgentVsAlliance>) -> Result<()> {
     //     battle::start_battle_agent_vs_alliance(ctx)
@@ -128,9 +131,6 @@ pub mod middle_earth_ai_program {
     // pub fn reset_battle_times(ctx: Context<ResetBattleTimes>) -> Result<()> {
     //     battle::reset_battle_times(ctx)
     // }
-
- 
-
 }
 
 #[derive(Accounts)]

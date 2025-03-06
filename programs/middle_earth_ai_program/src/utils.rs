@@ -1,4 +1,3 @@
-
 /// A placeholder function that returns a constant burn percentage.
 /// In a real game, you'd want to integrate an oracle or VRF for randomness.
 pub fn random_burn_percentage(min_burn: u64, max_burn: u64) -> u64 {
