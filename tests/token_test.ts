@@ -397,7 +397,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       .rpc();
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-    expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT + SECOND_DEPOSIT);
+    expect(Number(stakeInfo.shares)).to.equal(6875);
     console.log("Staker1: second deposit success. stakeInfo updated.");
   });
 

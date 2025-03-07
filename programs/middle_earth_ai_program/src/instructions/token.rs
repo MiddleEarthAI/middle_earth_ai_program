@@ -89,12 +89,12 @@ pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> R
         .total_shares
         .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
-    ctx.accounts.agent.staked_balance = ctx
-        .accounts
-        .agent
-        .staked_balance
-        .checked_add(deposit_amount as u128)
-        .ok_or(GameError::NotEnoughTokens)?;
+    // ctx.accounts.agent.staked_balance = ctx
+    //     .accounts
+    //     .agent
+    //     .staked_balance
+    //     .checked_add(deposit_amount as u128)
+    //     .ok_or(GameError::NotEnoughTokens)?;
     // Update stake_info
     stake_info.amount = deposit_amount;
     stake_info.shares = shares_to_mint;
