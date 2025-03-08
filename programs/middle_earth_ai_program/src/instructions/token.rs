@@ -141,9 +141,12 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
 
     let total_shares = ctx.accounts.agent.total_shares; // u128
     let shares_to_mint: u128 = if vault_balance_before == deposit_amount || total_shares == 0 {
-        deposit_amount as u128
+        deposit_amount as u128 // 1:1 , 1000 tokens -> 1000 shares 
     } else {
-        (deposit_amount as u128)
+        (deposit_amount as u128)  // 100000 - 1000  , 1 share -> 100 tokens , 100 tokens -> 1 
+        // 100000 tokens  - 1000 shares 
+        // 1 share = 10000 / 1000 = 10 tokens 
+        // 1000/10 = 100 shares 
             .checked_mul(total_shares)
             .ok_or(GameError::NotEnoughTokens)?
             .checked_div(vault_balance_before as u128)
@@ -248,15 +251,15 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
 
     // // Uncomment and adjust cooldown logic as needed
-    // require!(
-    //     now >= stake_info.cooldown_ends_at,
-    //     GameError::CooldownNotOver
-    // );
+    require!(
+        now >= stake_info.cooldown_ends_at,
+        GameError::CooldownNotOver
+    );
 
-    // require!(
-    //     now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
-    //     GameError::ClaimCooldown
-    // );
+    require!(
+        now >= stake_info.last_reward_timestamp + REWARD_CLAIM_COOLDOWN,
+        GameError::ClaimCooldown
+    );
 
     let time_elapsed = now - stake_info.last_reward_timestamp + 1;
 
