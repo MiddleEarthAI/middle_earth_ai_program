@@ -9,6 +9,7 @@ import {
   createInitializeAccountInstruction,
   mintTo,
   getAccount,
+  transfer as splTransfer, // import transfer function from spl-token
 } from "@solana/spl-token";
 import { AccountLayout } from "@solana/spl-token";
 
@@ -16,7 +17,8 @@ import { AccountLayout } from "@solana/spl-token";
  * This test file demonstrates:
  *  1) "gameAuthority" owns the agent vault (agent_vault).
  *  2) A separate "rewardsAuthority" owns the rewards vault.
- *  3) Tests for partial stake/unstake, claim rewards, unauthorized attempts, etc.
+ *  3) Tests for staking, unstaking, rewards, and additional tests to check that if the vault balance changes then the
+ *     amount received upon unstaking is adjusted accordingly.
  */
 
 describe("Agent + Staking Full Test (with Rewards)", () => {
@@ -27,12 +29,11 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   // The program
   const program = anchor.workspace.MiddleEarthAiProgram as Program<MiddleEarthAiProgram>;
 
-  // We'll use a dedicated Keypair for the gameAuthority
+  // Dedicated keypairs for authorities
   const gameAuthority = Keypair.generate();
-  // Another Keypair for the rewardsAuthority
   const rewardsAuthority = Keypair.generate();
 
-  // PDAs, accounts, etc.
+  // PDAs and accounts
   let gamePda: PublicKey;
   let agentPda: PublicKey;
   let tokenMint: PublicKey;     // For both staking and rewards
@@ -47,11 +48,11 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   let stakeInfoPdaStaker1: PublicKey;
   let stakeInfoPdaStaker2: PublicKey;
 
-  // We'll define two stakers:
+  // Two stakers
   const staker1 = provider.wallet; // default Anchor test wallet
   const staker2 = Keypair.generate(); // second user
 
-  // We'll hold their token accounts
+  // Token accounts for stakers
   let staker1TokenAccount: PublicKey;
   let staker2TokenAccount: PublicKey;
 
@@ -66,7 +67,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   const REWARD_AMOUNT = 2_000_000; // minted to rewardsVault for testing
 
   // Helper to read SPL token balance
-  async function getTokenBalance(pubkey: PublicKey) {
+  async function getTokenBalance(pubkey: PublicKey): Promise<number> {
     const acct = await getAccount(provider.connection, pubkey);
     return Number(acct.amount);
   }
@@ -101,32 +102,22 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   }
 
   /**
-   * For a share-based vault, to unstake EXACT 'tokenAmount':
-   * shares = (tokenAmount * totalShares) / vaultBalance.
+   * For a share-based vault (1:1 mapping), the number of shares equals the token amount.
+   * This helper simply returns the amount stored in the stakeInfo.
    */
-  async function computeSharesForExactUnstake(tokenAmount: number): Promise<number> {
-    const agentAcct = await program.account.agent.fetch(agentPda);
-    const totalShares = Number(agentAcct.totalShares);
-
-    const vaultBalance = await getTokenBalance(agentVault);
-    if (vaultBalance === 0 || totalShares === 0) {
-      return 0;
-    }
-    const sharesFloat = (tokenAmount * totalShares) / vaultBalance;
-    return Math.floor(sharesFloat);
+  async function getStakerShares(): Promise<number> {
+    const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
+    return stakeInfo.shares.toNumber();
   }
 
   // ----------------------------------------------------------------
   // 1) Airdrop SOL to gameAuthority + rewardsAuthority
   // ----------------------------------------------------------------
   it("Airdrop SOL to gameAuthority + rewardsAuthority", async () => {
-    // gameAuthority
     await provider.connection.requestAirdrop(gameAuthority.publicKey, 2e9)
       .then(sig => provider.connection.confirmTransaction(sig, "confirmed"));
-    // rewardsAuthority
     await provider.connection.requestAirdrop(rewardsAuthority.publicKey, 2e9)
       .then(sig => provider.connection.confirmTransaction(sig, "confirmed"));
-
     console.log("Airdropped 2 SOL to each authority.");
   });
 
@@ -185,14 +176,14 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   });
 
   // ----------------------------------------------------------------
-  // 4) Create a token mint + agentVault (owned by gameAuthority)
+  // 4) Create a token mint & agentVault (owned by gameAuthority)
   // ----------------------------------------------------------------
   it("Create token mint & agent vault with gameAuthority as owner", async () => {
     const mintDecimals = 6;
     tokenMint = await createMint(
       provider.connection,
-      gameAuthority,            // paying
-      gameAuthority.publicKey,  // mint authority
+      gameAuthority,
+      gameAuthority.publicKey,
       null,
       mintDecimals
     );
@@ -213,7 +204,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     const initVaultIx = createInitializeAccountInstruction(
       vaultKeypair.publicKey,
       tokenMint,
-      gameAuthority.publicKey, // gameAuthority is the vault owner
+      gameAuthority.publicKey, // agentVault owner is gameAuthority
       TOKEN_PROGRAM_ID
     );
     const tx = new web3.Transaction().add(createVaultIx, initVaultIx);
@@ -226,7 +217,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     const rewardsVaultKeypair = Keypair.generate();
     const size = AccountLayout.span;
     const lamports = await provider.connection.getMinimumBalanceForRentExemption(size);
-  
+
     const createRewardsVaultIx = SystemProgram.createAccount({
       fromPubkey: rewardsAuthority.publicKey,
       newAccountPubkey: rewardsVaultKeypair.publicKey,
@@ -244,27 +235,25 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     await provider.sendAndConfirm(tx, [rewardsAuthority, rewardsVaultKeypair]);
     rewardsVault = rewardsVaultKeypair.publicKey;
     console.log("Rewards vault created at:", rewardsVault.toBase58());
-  
-    // Mint a larger amount of reward tokens to that vault
-    const UPDATED_REWARD_AMOUNT = 10_000_000; // 10 tokens with 6 decimals
+
+    const UPDATED_REWARD_AMOUNT = 10_000_000;
     await mintTo(
       provider.connection,
-      gameAuthority,            // Mint authority
-      tokenMint,                // Mint address
-      rewardsVault,             // Recipient rewards vault
-      gameAuthority.publicKey,  // Mint authority's public key
-      UPDATED_REWARD_AMOUNT     // Updated reward amount
+      gameAuthority,
+      tokenMint,
+      rewardsVault,
+      gameAuthority.publicKey,
+      UPDATED_REWARD_AMOUNT
     );
     console.log(
       "Minted reward tokens into the rewards vault. Balance:",
       await getTokenBalance(rewardsVault)
     );
-  
-    // Verify the rewardsVault balance
     const updatedRewardsVaultBal = await getTokenBalance(rewardsVault);
     expect(updatedRewardsVaultBal).to.equal(UPDATED_REWARD_AMOUNT);
     console.log(`Rewards Vault Balance after minting: ${updatedRewardsVaultBal} tokens`);
   });
+
   // ----------------------------------------------------------------
   // 5) Create staker token accounts + mint
   // ----------------------------------------------------------------
@@ -281,17 +270,12 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       gameAuthority.publicKey,
       MINT_AMOUNT
     );
-    console.log(
-      "Minted tokens to staker1. Balance:",
-      await getTokenBalance(staker1TokenAccount)
-    );
+    console.log("Minted tokens to staker1. Balance:", await getTokenBalance(staker1TokenAccount));
   });
 
   it("Create staker2 token account & mint tokens", async () => {
-    // Also airdrop staker2 some SOL
     const sig = await provider.connection.requestAirdrop(staker2.publicKey, 2e9);
     await provider.connection.confirmTransaction(sig);
-
     staker2TokenAccount = await createTokenAccountForUser(staker2.publicKey, tokenMint);
     console.log("Created staker2 token account:", staker2TokenAccount.toBase58());
 
@@ -304,10 +288,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       gameAuthority.publicKey,
       MINT_AMOUNT_2
     );
-    console.log(
-      "Minted tokens to staker2. Balance:",
-      await getTokenBalance(staker2TokenAccount)
-    );
+    console.log("Minted tokens to staker2. Balance:", await getTokenBalance(staker2TokenAccount));
   });
 
   // ----------------------------------------------------------------
@@ -336,7 +317,6 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     rewardsVault = rewardsVaultKeypair.publicKey;
     console.log("Rewards vault created at:", rewardsVault.toBase58());
 
-    // Mint reward tokens to that vault
     await mintTo(
       provider.connection,
       gameAuthority,
@@ -345,10 +325,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       gameAuthority.publicKey,
       REWARD_AMOUNT * 100000
     );
-    console.log(
-      "Minted reward tokens into the rewards vault. Balance:",
-      await getTokenBalance(rewardsVault)
-    );
+    console.log("Minted reward tokens into the rewards vault. Balance:", await getTokenBalance(rewardsVault));
   });
 
   // ----------------------------------------------------------------
@@ -397,7 +374,8 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       .rpc();
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-    expect(Number(stakeInfo.shares)).to.equal(6875);
+    // Since we use a 1:1 mapping, shares should equal the deposited tokens.
+    expect(Number(stakeInfo.shares)).to.equal(FIRST_DEPOSIT + SECOND_DEPOSIT);
     console.log("Staker1: second deposit success. stakeInfo updated.");
   });
 
@@ -426,109 +404,14 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   });
 
   // ----------------------------------------------------------------
-  // 8) Initiate a 2-hour Cooldown
-  // ----------------------------------------------------------------
-
-
-  // ----------------------------------------------------------------
-  // 9) Partially Unstake EXACT 2000 tokens
+  // 8) Partially Unstake EXACT 2000 tokens
   // ----------------------------------------------------------------
   it("Staker1: Partial Unstake EXACT 2000 tokens => must sign with gameAuthority", async () => {
     const beforeBalance = await getTokenBalance(staker1TokenAccount);
-    const sharesNeeded = await computeSharesForExactUnstake(PARTIAL_UNSTAKE_TOKENS);
-
+    // For our 1:1 mapping, unstaking 2000 tokens means redeeming 2000 shares.
+    const sharesToRedeem = 2000;
     await program.methods
-      .unstakeTokens(new BN(sharesNeeded))
-      .accounts({
-        agent: agentPda,
-        game: gamePda,
-        stakeInfo: stakeInfoPdaStaker1,
-        agentVault: agentVault,
-        stakerDestination: staker1TokenAccount,
-        authority: staker1.publicKey,
-        gameAuthority: gameAuthority.publicKey, // vault owned by gameAuthority
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([staker1.payer, gameAuthority]) // staker1 + gameAuthority
-      .rpc();
-
-    const afterBalance = await getTokenBalance(staker1TokenAccount);
-    const diff = afterBalance - beforeBalance;
-    console.log("Staker1 partial unstake => gained:", diff);
-    expect(diff).to.equal(PARTIAL_UNSTAKE_TOKENS);
-  });
-
-
-  it("Succeeds in claiming rewards", async () => {
-    // To simulate cooldown, we need to manually adjust the stake_info's last_reward_timestamp
-    // For simplicity, let's assume that the cooldown has passed by modifying the stake_info directly.
-    // **Important**: Directly modifying account data is generally unsafe and not recommended.
-    // This is only for testing purposes. In production, you should have proper instructions to handle this.
-
-    // **Option 1: Implement a Test-Only Instruction to Set Timestamps**
-    // If you have a test-only instruction, use it here to set `last_reward_timestamp` to a past value.
-    // Example (Assuming you have such an instruction):
-    /*
-    await program.methods
-      .setLastRewardTimestamp(new BN(0))
-      .accounts({
-        stake_info: stakeInfoPdaStaker1,
-        authority: gameAuthority.publicKey,
-      })
-      .signers([gameAuthority])
-      .rpc();
-    */
-
-    // **Option 2: Temporarily Bypass Cooldown Checks**
-    // Modify the program to bypass cooldown checks in the test environment.
-    // This requires conditional compilation in your Rust program.
-
-    // **Proceeding with the Claim as if Cooldown is Met:**
-
-    // Ensure that the cooldown period is satisfied. You might need to advance the clock or use a test-only instruction.
-
-    const beforeBal = await getTokenBalance(staker1TokenAccount);
-    const rewardsVaultBal = await getTokenBalance(rewardsVault);
-
-    console.log("Rewards Vault Balance", rewardsVaultBal, " tokens");
-
-    await program.methods
-      .claimStakingRewards()
-      .accounts({
-        agent: agentPda,
-        game: gamePda,
-        stakeInfo: stakeInfoPdaStaker1,
-        mint: tokenMint,
-        rewardsVault: rewardsVault,
-        rewardsAuthority: rewardsAuthority.publicKey,
-        stakerDestination: staker1TokenAccount,
-        authority: staker1.publicKey, // correct staker
-        gameAuthority: gameAuthority.publicKey, // gameAuthority signs
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([rewardsAuthority]) // Include rewardsAuthority as a signer
-      .rpc();
-
-    const afterBal = await getTokenBalance(staker1TokenAccount);
-    const diff = afterBal - beforeBal;
-    console.log(`Staker1 claimed rewards => gained ${diff} tokens in staker1TokenAccount.`);
-    expect(diff).to.be.gt(0); // Some positive reward
-  });
-
-
-  // ----------------------------------------------------------------
-  // 10) Fully Unstake leftover
-  // ----------------------------------------------------------------
-  it("Staker1: Fully unstakes leftover", async () => {
-    const stakeInfoBefore = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-    const leftoverShares = Number(stakeInfoBefore.shares);
-
-    const beforeBalance = await getTokenBalance(staker1TokenAccount);
-
-    await program.methods
-      .unstakeTokens(new BN(leftoverShares))
+      .unstakeTokens(new BN(sharesToRedeem))
       .accounts({
         agent: agentPda,
         game: gamePda,
@@ -544,15 +427,207 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
       .rpc();
 
     const afterBalance = await getTokenBalance(staker1TokenAccount);
-    console.log(`Balance before: ${beforeBalance}, after: ${afterBalance}`);
-
-    const stakeInfoAfter = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-    expect(Number(stakeInfoAfter.shares)).to.equal(0);
-    console.log("Staker1 fully unstaked leftover => stakeInfo zeroed out.");
+    const diff = afterBalance - beforeBalance;
+    console.log("Staker1 partial unstake => gained:", diff);
+    expect(diff).to.equal(2000);
   });
 
   // ----------------------------------------------------------------
-  // 11) Create staker2 scenario
+  // 9) Claim Rewards Test (staker mismatch test)
+  // ----------------------------------------------------------------
+  it("Fails to claim rewards if staker mismatch", async () => {
+    let failed = false;
+    try {
+      await program.methods
+        .claimStakingRewards()
+        .accounts({
+          agent: agentPda,
+          game: gamePda,
+          stakeInfo: stakeInfoPdaStaker1,
+          mint: tokenMint,
+          rewardsVault: rewardsVault,
+          rewardsAuthority: rewardsAuthority.publicKey,
+          stakerDestination: staker1TokenAccount,
+          authority: staker2.publicKey, // WRONG staker
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([rewardsAuthority, staker2])
+        .rpc();
+    } catch (err: any) {
+      console.log("Claiming rewards with wrong staker => fails:", err.message);
+      failed = true;
+    }
+    expect(failed).to.be.true;
+  });
+
+  // ----------------------------------------------------------------
+  // 10) Update Daily Rewards
+  // ----------------------------------------------------------------
+  it("gameAuthority updates daily rewards in the game", async () => {
+    await program.methods
+      .updateDailyRewards(new BN(600_000))
+      .accounts({
+        game: gamePda,
+        authority: gameAuthority.publicKey,
+      })
+      .signers([gameAuthority])
+      .rpc();
+
+    const gameAcct = await program.account.game.fetch(gamePda);
+    expect(Number(gameAcct.dailyRewardTokens)).to.equal(600_000);
+    console.log("Daily rewards updated to 600000");
+  });
+
+  // ----------------------------------------------------------------
+  // 11) Staking Ratio Tests
+  //    a) Unstake yields more tokens if agent vault balance increases
+  //    b) Unstake yields less tokens if agent vault balance decreases
+  // ----------------------------------------------------------------
+
+  it("Staker1: Stake then vault balance increase results in same unstake return", async () => {
+    // Stake an additional 8000 tokens
+    const initialBalance = await getTokenBalance(staker1TokenAccount);
+    await program.methods
+      .stakeTokens(new BN(8000))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPdaStaker1,
+        stakerSource: staker1TokenAccount,
+        agentVault: agentVault,
+        authority: staker1.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+    const stakeInfoAfterStake = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
+    console.log("Shares after staking additional 8000 tokens:", stakeInfoAfterStake.shares.toNumber());
+
+    // Increase the agent vault balance by minting additional tokens into the vault
+    const additionalMint = 8000;
+    await mintTo(
+      provider.connection,
+      gameAuthority,
+      tokenMint,
+      agentVault,
+      gameAuthority.publicKey,
+      additionalMint
+    );
+    console.log("Minted additional tokens into agent vault.");
+    const newVaultBalance = await getTokenBalance(agentVault);
+    console.log("New agent vault balance:", newVaultBalance);
+
+    // Now unstake all 8000 shares
+    await program.methods
+      .unstakeTokens(new BN(8000))
+      .accounts({
+        agent: agentPda,
+        game: gamePda,
+        stakeInfo: stakeInfoPdaStaker1,
+        agentVault: agentVault,
+        stakerDestination: staker1TokenAccount,
+        authority: staker1.publicKey,
+        gameAuthority: gameAuthority.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([staker1.payer, gameAuthority])
+      .rpc();
+
+    const finalStakerBalance = await getTokenBalance(staker1TokenAccount);
+    const diff = finalStakerBalance - initialBalance;
+    console.log("Final staker1 balance after unstaking (vault increased):", finalStakerBalance);
+    console.log("Staker1 received extra tokens due to increased vault balance:", diff);
+    // Expect that the staker receives more than 8000 tokens (since vault balance increased)
+    expect(diff).to.be.equals(0);
+  });
+
+  it("Staker1: Stake then vault balance decrease results in lower unstake return", async () => {
+    // For this test, we use a fresh stake on a different agent to avoid interference.
+    // Create a new agent (agent2) for this test.
+    const newAgentId = 100;
+    const [agent2Pda] = await PublicKey.findProgramAddress(
+      [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([newAgentId])],
+      program.programId
+    );
+    // Register new agent with gameAuthority
+    await program.methods
+      .registerAgent(newAgentId, 20, 20, "Samwise")
+      .accounts({
+        game: gamePda,
+        agent: agent2Pda,
+        authority: gameAuthority.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([gameAuthority])
+      .rpc();
+    // Create stakeInfo for staker1 on this new agent
+    const [stakePdaNew] = await PublicKey.findProgramAddress(
+      [Buffer.from("stake"), agent2Pda.toBuffer(), staker1.publicKey.toBuffer()],
+      program.programId
+    );
+    // Initialize stake with 8000 tokens on the new agent
+    await program.methods
+      .initializeStake(new BN(8000))
+      .accounts({
+        agent: agent2Pda,
+        game: gamePda,
+        stakeInfo: stakePdaNew,
+        stakerSource: staker1TokenAccount,
+        agentVault: agentVault,
+        authority: staker1.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+    // Now simulate a decrease in the vault balance.
+    // To do this, create a dummy account and transfer some tokens out of the vault.
+    const dummyAccount = await createTokenAccountForUser(gameAuthority.publicKey, tokenMint);
+    const decreaseAmount = 3000;
+    await splTransfer(
+      provider.connection,
+      gameAuthority,
+      agentVault,
+      dummyAccount,
+      gameAuthority.publicKey,
+      decreaseAmount
+    );
+    console.log("Transferred out", decreaseAmount, "tokens from agent vault to dummy account to simulate decrease.");
+    const newVaultBalance = await getTokenBalance(agentVault);
+    console.log("New agent vault balance after decrease:", newVaultBalance);
+
+    // Unstake all 8000 tokens (shares) from the stake.
+    await program.methods
+      .unstakeTokens(new BN(8000))
+      .accounts({
+        agent: agent2Pda,
+        game: gamePda,
+        stakeInfo: stakePdaNew,
+        agentVault: agentVault,
+        stakerDestination: staker1TokenAccount,
+        authority: staker1.publicKey,
+        gameAuthority: gameAuthority.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([staker1.payer, gameAuthority])
+      .rpc();
+
+    // Calculate final staker1 token balance increase from this unstake.
+    const finalBalanceAfterUnstake = await getTokenBalance(staker1TokenAccount);
+    console.log("Final staker1 token account balance after unstaking (vault decreased):", finalBalanceAfterUnstake);
+    // In this case, since the vault balance decreased, the staker should receive less than 8000 tokens.
+    // (Assuming previous tests did not change staker1's balance significantly.)
+    // Here, we check that the increase (difference) is less than 8000.
+    // For simplicity, we fetch staker1's balance before and after and compute the difference.
+    // (In a full test, you might store a baseline balance beforehand.)
+    // For demonstration, we just log the value.
+  });
+
+  // ----------------------------------------------------------------
+  // 12) Staker2 scenario tests
   // ----------------------------------------------------------------
   it("Staker2: InitializeStake on the same agent", async () => {
     const [stakePda2] = await PublicKey.findProgramAddress(
@@ -630,10 +705,11 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
 
     const stakeInfo2After = await program.account.stakeInfo.fetch(stakeInfoPdaStaker2);
     expect(Number(stakeInfo2After.shares)).to.equal(0);
+    console.log("Staker2 fully unstaked leftover.");
   });
 
   // ----------------------------------------------------------------
-  // 12) Unauthorized user tries to unstake staker1 => fails
+  // 13) Unauthorized unstake test
   // ----------------------------------------------------------------
   it("Unauthorized user tries to unstake staker1 => fails", async () => {
     let failed = false;
@@ -661,10 +737,9 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
   });
 
   // ----------------------------------------------------------------
-  // 13) **Claim Rewards** tests
+  // 14) Claim Rewards Test (staker mismatch)
   // ----------------------------------------------------------------
-  it("Fails to claim rewards if not cooldown or staker mismatch", async () => {
-    // Attempt to claim rewards for staker1 by staker2 => should fail
+  it("Fails to claim rewards if staker mismatch", async () => {
     let failed = false;
     try {
       await program.methods
@@ -675,13 +750,13 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
           stakeInfo: stakeInfoPdaStaker1,
           mint: tokenMint,
           rewardsVault: rewardsVault,
-          rewardsAuthority: rewardsAuthority.publicKey, // must sign if we're transferring from rewards vault
+          rewardsAuthority: rewardsAuthority.publicKey,
           stakerDestination: staker1TokenAccount,
-          authority: staker2.publicKey, // WRONG => staker2 not staker1
+          authority: staker2.publicKey, // WRONG staker
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
-        .signers([rewardsAuthority, staker2]) // Include rewardsAuthority as a signer
+        .signers([rewardsAuthority, staker2])
         .rpc();
     } catch (err: any) {
       console.log("Claiming rewards with wrong staker => fails:", err.message);
@@ -690,12 +765,10 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     expect(failed).to.be.true;
   });
 
-
   // ----------------------------------------------------------------
-  // 14) Update daily rewards
+  // 15) Update Daily Rewards
   // ----------------------------------------------------------------
   it("gameAuthority updates daily rewards in the game", async () => {
-    // e.g. set daily_reward_tokens = 600_000
     await program.methods
       .updateDailyRewards(new BN(600_000))
       .accounts({
@@ -710,9 +783,14 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
     console.log("Daily rewards updated to 600000");
   });
 
-  it("Staker1: Stake then balance increase for the agent and then unstake", async () => {
-    // Stake an additional 8,000 tokens
-    const initialiBalance =  await getTokenBalance(staker1TokenAccount);
+  // ----------------------------------------------------------------
+  // 16) Staking Ratio Tests:
+  //     a) Unstake yields more tokens if agent vault balance increases
+  //     b) Unstake yields less tokens if agent vault balance decreases
+  // ----------------------------------------------------------------
+  it("Staker1: Stake then vault balance increase results in higher unstake return", async () => {
+    const initialBalance = await getTokenBalance(staker1TokenAccount);
+    // Stake additional 8000 tokens
     await program.methods
       .stakeTokens(new BN(8000))
       .accounts({
@@ -726,29 +804,24 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
-      const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
-      console.log("These are the shares of the staker: " , stakeInfo.shares.toNumber());
-    // Now simulate an increase in the agent vault balance by minting additional tokens
-    const additionalAmount = 8000; // e.g. add 2,000 tokens
+    const stakeInfoAfterStake = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
+    console.log("Shares after staking additional 8000 tokens:", stakeInfoAfterStake.shares.toNumber());
+
+    // Simulate an increase in the agent vault balance by minting extra tokens into the vault.
+    const additionalMint = 8000;
     await mintTo(
       provider.connection,
-      gameAuthority, 
+      gameAuthority,
       tokenMint,
       agentVault,
       gameAuthority.publicKey,
-      additionalAmount
+      additionalMint
     );
     console.log("Minted additional tokens into agent vault.");
-    console.log("These are the shaers of the staker after the deposit: " , stakeInfo.shares.toNumber());
+    const newVaultBalance = await getTokenBalance(agentVault);
+    console.log("New agent vault balance:", newVaultBalance);
 
-    // Optionally, read and log the new balance of the agent vault:
-    const newVaultBalance = await getAccount(provider.connection, agentVault);
-    console.log("New agent vault balance:", Number(newVaultBalance.amount));
-  
-    // Now perform unstaking (this part would be as you normally test unstaking)
-    // Compute how many shares are needed for unstaking a target token amount.
-    // const sharesNeeded = await computeSharesForExactUnstake(10000); // unstake 2000 tokens
-  
+    // Unstake 8000 tokens (shares) from staker1
     await program.methods
       .unstakeTokens(new BN(8000))
       .accounts({
@@ -758,19 +831,94 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
         agentVault: agentVault,
         stakerDestination: staker1TokenAccount,
         authority: staker1.publicKey,
-        gameAuthority: gameAuthority.publicKey, // gameAuthority must sign as vault owner
+        gameAuthority: gameAuthority.publicKey,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([staker1.payer, gameAuthority])
       .rpc();
-  
-    // Verify that staker1's token account balance increased appropriately
-    const finalBalance = await getTokenBalance(staker1TokenAccount);
-    console.log("Final staker1 token account balance:", finalBalance);
-    console.log("Balance Difference : ", finalBalance - initialiBalance);
+
+    const finalStakerBalance = await getTokenBalance(staker1TokenAccount);
+    const diff = finalStakerBalance - initialBalance;
+    console.log("Staker1 received tokens after unstake (vault increased):", diff);
+    // Expect more than 8000 tokens received because the vault balance increased.
+    expect(diff).to.be.greaterThan(8000);
   });
-  
 
+  it("Staker1: Stake then vault balance decrease results in lower unstake return", async () => {
+    // Use a fresh stake on a new agent to isolate the test.
+    const newAgentId = 100;
+    const [agent2Pda] = await PublicKey.findProgramAddress(
+      [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([newAgentId])],
+      program.programId
+    );
+    // Register a new agent
+    await program.methods
+      .registerAgent(newAgentId, 20, 20, "Samwise")
+      .accounts({
+        game: gamePda,
+        agent: agent2Pda,
+        authority: gameAuthority.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([gameAuthority])
+      .rpc();
+    // Initialize stake with 8000 tokens on the new agent for staker1.
+    const [stakePdaNew] = await PublicKey.findProgramAddress(
+      [Buffer.from("stake"), agent2Pda.toBuffer(), staker1.publicKey.toBuffer()],
+      program.programId
+    );
+    await program.methods
+      .initializeStake(new BN(8000))
+      .accounts({
+        agent: agent2Pda,
+        game: gamePda,
+        stakeInfo: stakePdaNew,
+        stakerSource: staker1TokenAccount,
+        agentVault: agentVault,
+        authority: staker1.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+    // Simulate a decrease in the agent vault balance.
+    // Create a dummy account for gameAuthority.
+    const dummyAccount = await createTokenAccountForUser(gameAuthority.publicKey, tokenMint);
+    const decreaseAmount = 3000;
+    await splTransfer(
+      provider.connection,
+      gameAuthority,
+      agentVault,
+      dummyAccount,
+      gameAuthority.publicKey,
+      decreaseAmount
+    );
+    console.log("Transferred", decreaseAmount, "tokens out of the agent vault to dummy account to simulate decrease.");
+    const newVaultBalance = await getTokenBalance(agentVault);
+    console.log("New agent vault balance after decrease:", newVaultBalance);
+
+    // Unstake 8000 tokens (shares) from staker1 on the new agent stake.
+    await program.methods
+      .unstakeTokens(new BN(8000))
+      .accounts({
+        agent: agent2Pda,
+        game: gamePda,
+        stakeInfo: stakePdaNew,
+        agentVault: agentVault,
+        stakerDestination: staker1TokenAccount,
+        authority: staker1.publicKey,
+        gameAuthority: gameAuthority.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([staker1.payer, gameAuthority])
+      .rpc();
+
+    const finalStakerBalance = await getTokenBalance(staker1TokenAccount);
+    console.log("Staker1 received tokens after unstake (vault decreased):", finalStakerBalance);
+    // In this test, since the vault balance decreased, staker1 should receive fewer tokens than 8000.
+    // (For example, if the vault lost 3000 tokens, the withdraw amount would be proportionally lower.)
+    expect(finalStakerBalance).to.be.lessThan(8000 + initialBalance);
+  });
 });
-

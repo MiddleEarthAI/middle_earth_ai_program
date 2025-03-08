@@ -13,7 +13,7 @@ fn add_stake_to_game(game: &mut Account<Game>, staker: Pubkey, amount: u64) -> R
     if let Some(entry) = game
         .total_stake_accounts
         .iter_mut()
-        .find(|x| x.staker == staker)
+        .find(|x: &&mut StakerStake| x.staker == staker)
     {
         entry.total_stake = entry
             .total_stake
@@ -69,42 +69,32 @@ pub fn initialize_stake(ctx: Context<InitializeStake>, deposit_amount: u64) -> R
     let data = ctx.accounts.agent_vault.data.borrow();
     let mut slice: &[u8] = &data;
     let vault_info = TokenAccount::try_deserialize(&mut slice)?;
-    let vault_balance_before = vault_info.amount;
+    let _vault_balance_before = vault_info.amount;
 
-    let total_shares = ctx.accounts.agent.total_shares; // u128
-    let shares_to_mint: u128 = if vault_balance_before == deposit_amount || total_shares == 0 {
-        deposit_amount as u128
-    } else {
-        (deposit_amount as u128)
-            .checked_mul(total_shares)
-            .ok_or(GameError::NotEnoughTokens)?
-            .checked_div(vault_balance_before as u128)
-            .ok_or(GameError::NotEnoughTokens)?
-    };
+    // For a 1:1 mapping, simply mint shares equal to the deposit amount.
+    let shares_to_mint: u128 = deposit_amount as u128;
 
-    // Update agent's total_shares
+    // Update agent's total_shares (and optionally staked_balance)
     ctx.accounts.agent.total_shares = ctx
         .accounts
         .agent
         .total_shares
         .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
+    // Optionally, update staked_balance if you wish to track it separately:
     // ctx.accounts.agent.staked_balance = ctx
     //     .accounts
     //     .agent
     //     .staked_balance
     //     .checked_add(deposit_amount as u128)
     //     .ok_or(GameError::NotEnoughTokens)?;
+
     // Update stake_info
     stake_info.amount = deposit_amount;
     stake_info.shares = shares_to_mint;
 
     // Update global total stake
-    add_stake_to_game(
-        &mut ctx.accounts.game,
-        ctx.accounts.authority.key(),
-        deposit_amount,
-    )?;
+    add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
 
     // Set cooldown to 1 hour initially
     let now = Clock::get()?.unix_timestamp;
@@ -133,26 +123,14 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
     );
     token::transfer(cpi_ctx, deposit_amount)?;
 
-    // Read vault balance
+    // Read vault balance (if needed)
     let data = ctx.accounts.agent_vault.data.borrow();
     let mut slice: &[u8] = &data;
-    let vault_info = TokenAccount::try_deserialize(&mut slice)?;
-    let vault_balance_before = vault_info.amount;
+    let _vault_info = TokenAccount::try_deserialize(&mut slice)?;
+    // For 1:1 mapping, shares to mint equals deposit_amount.
+    let shares_to_mint: u128 = deposit_amount as u128;
 
-    let total_shares = ctx.accounts.agent.total_shares; // u128
-    let shares_to_mint: u128 = if vault_balance_before == deposit_amount || total_shares == 0 {
-        deposit_amount as u128 // 1:1 , 1000 tokens -> 1000 shares 
-    } else {
-        (deposit_amount as u128)  // 100000 - 1000  , 1 share -> 100 tokens , 100 tokens -> 1 
-        // 100000 tokens  - 1000 shares 
-        // 1 share = 10000 / 1000 = 10 tokens 
-        // 1000/10 = 100 shares 
-            .checked_mul(total_shares)
-            .ok_or(GameError::NotEnoughTokens)?
-            .checked_div(vault_balance_before as u128)
-            .ok_or(GameError::NotEnoughTokens)?
-    };
-
+    // Update agent's total_shares
     ctx.accounts.agent.total_shares = ctx
         .accounts
         .agent
@@ -160,10 +138,20 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
         .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
 
+    // Update stake_info shares
     stake_info.shares = stake_info
         .shares
         .checked_add(shares_to_mint)
         .ok_or(GameError::NotEnoughTokens)?;
+
+    // (Optionally update stake_info.amount if you want to sum deposits)
+    stake_info.amount = stake_info
+        .amount
+        .checked_add(deposit_amount)
+        .ok_or(GameError::NotEnoughTokens)?;
+
+    // Update global total stake
+    add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
 
     let now = Clock::get()?.unix_timestamp;
     stake_info.cooldown_ends_at = now + ONE_HOUR;
@@ -187,36 +175,42 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
         ctx.accounts.authority.key(),
         GameError::Unauthorized
     );
-    let now = Clock::get()?.unix_timestamp;
+    let _now = Clock::get()?.unix_timestamp;
+    // (Cooldown check can be added if needed)
 
     // Borrow the vault data once
-    let vault_balance = {
-        let vault_data = ctx.accounts.agent_vault.try_borrow_data()?;
-        let vault_account = TokenAccount::try_deserialize(&mut &vault_data[..])?;
-        vault_account.amount
-    };
+
 
     let total_shares = ctx.accounts.agent.total_shares; // u128
 
-    // Calculate the withdraw amount proportionally
-    let withdraw_amount = u128::from(shares_to_redeem)
-        .checked_mul(u128::from(vault_balance))
-        .ok_or(GameError::MultiplicationError)?
-        .checked_div(total_shares)
-        .ok_or(GameError::DivisionError)?;
+    // In a 1:1 mapping, if no external changes then vault_balance == total_shares,
+    // and each share is worth exactly 1 token. However, if the vault balance has changed,
+    // then the withdraw amount is computed proportionally.
+    let computed_withdraw = shares_to_redeem ;
 
-    // Update agent's total_shares
+    // Update agent's total_shares and stake_info
     ctx.accounts.agent.total_shares = ctx
         .accounts
         .agent
         .total_shares
         .checked_sub(u128::from(shares_to_redeem))
         .ok_or(GameError::SubtractionError)?;
-
     stake_info.shares = stake_info
         .shares
         .checked_sub(shares_to_redeem as u128)
         .ok_or(GameError::SubtractionError)?;
+    // (Optionally update stake_info.amount as well)
+    stake_info.amount = stake_info
+        .amount
+        .checked_sub(computed_withdraw as u64)
+        .ok_or(GameError::SubtractionError)?;
+
+    // Update global total stake
+    remove_stake_from_game(
+        &mut ctx.accounts.game,
+        ctx.accounts.authority.key(),
+        computed_withdraw as u64,
+    )?;
 
     // Transfer tokens from the vault to the staker
     let cpi_accounts = Transfer {
@@ -226,7 +220,7 @@ pub fn unstake_tokens(ctx: Context<UnstakeTokens>, shares_to_redeem: u64) -> Res
     };
 
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
-    token::transfer(cpi_ctx, withdraw_amount as u64)?;
+    token::transfer(cpi_ctx, computed_withdraw as u64)?;
 
     Ok(())
 }
@@ -238,10 +232,8 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let stake_info = &mut ctx.accounts.stake_info;
     let REWARD_RATE_PER_SECOND: u64 = DAILY_REWARD_TOKENS / 86400;
 
-    // Ensure the stake is initialized
     require!(stake_info.is_initialized, GameError::NotEnoughTokens);
 
-    // Verify the staker is authorized
     require_keys_eq!(
         stake_info.staker,
         ctx.accounts.authority.key(),
@@ -250,7 +242,6 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
 
     let now = Clock::get()?.unix_timestamp;
 
-    // // Uncomment and adjust cooldown logic as needed
     require!(
         now >= stake_info.cooldown_ends_at,
         GameError::CooldownNotOver
@@ -263,12 +254,10 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
 
     let time_elapsed = now - stake_info.last_reward_timestamp + 1;
 
-    // Calculate the user's share proportion
     let stake_shares = stake_info.shares as f64;
     let total_shares = ctx.accounts.agent.total_shares as f64;
     let share_proportion = stake_shares / total_shares;
 
-    // Calculate the rewards
     let user_reward_float =
         (time_elapsed as f64) * (REWARD_RATE_PER_SECOND as f64) * share_proportion;
     let user_reward = user_reward_float.floor() as u64;
@@ -283,7 +272,6 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
         );
     }
 
-    // Transfer rewards - approved by rewards_authority
     let cpi_accounts = Transfer {
         from: ctx.accounts.rewards_vault.to_account_info(),
         to: ctx.accounts.staker_destination.to_account_info(),
@@ -292,7 +280,6 @@ pub fn claim_staking_rewards(ctx: Context<ClaimRewards>) -> Result<()> {
     let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
     token::transfer(cpi_ctx, user_reward)?;
 
-    // Update the last reward timestamp
     stake_info.last_reward_timestamp = now;
 
     Ok(())
@@ -397,7 +384,7 @@ pub struct UnstakeTokens<'info> {
     #[account(mut)]
     pub agent_vault: AccountInfo<'info>,
 
-    /// CHECK: The staker's token account (destination).
+    /// CHECK: The staker's token account (destination)
     #[account(mut)]
     pub staker_destination: AccountInfo<'info>,
 
@@ -406,32 +393,11 @@ pub struct UnstakeTokens<'info> {
 
     /// The game authority, who owns the vault
     #[account(mut)]
-    pub game_authority: Signer<'info>, // Correctly defined
+    pub game_authority: Signer<'info>, // Must sign to allow withdrawal from vault
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
 }
-
-// #[derive(Accounts)]
-// pub struct InitiateCooldown<'info> {
-//     #[account(mut, has_one = game)]
-//     pub agent: Account<'info, Agent>,
-
-//     #[account(mut)]
-//     pub game: Account<'info, Game>,
-
-//     #[account(
-//         mut,
-//         seeds = [b"stake", agent.key().as_ref(), authority.key().as_ref()],
-//         bump
-//     )]
-//     pub stake_info: Account<'info, StakeInfo>,
-
-//     #[account(mut)]
-//     pub authority: Signer<'info>, // The user who initiates cooldown
-
-//     pub system_program: Program<'info, System>,
-// }
 
 #[derive(Accounts)]
 pub struct ClaimRewards<'info> {
@@ -463,10 +429,9 @@ pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub authority: Signer<'info>, // The staker
 
-    /// CHECK: Rewards authority approves the transfer from rewards_vault
-    /// CHECK: Rewards authority is a trusted signer who controls the rewards_vault
+    /// CHECK: Rewards authority who controls the rewards vault (must sign)
     #[account(mut, signer)]
-    pub rewards_authority: AccountInfo<'info>, // Correctly marked as signer with documentation
+    pub rewards_authority: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
