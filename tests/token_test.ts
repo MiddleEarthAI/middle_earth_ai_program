@@ -354,6 +354,7 @@ describe("Agent + Staking Full Test (with Rewards)", () => {
 
     const stakeInfo = await program.account.stakeInfo.fetch(stakeInfoPdaStaker1);
     expect(Number(stakeInfo.amount)).to.equal(FIRST_DEPOSIT);
+    expect(Number(stakeInfo.shares)).to.equal(FIRST_DEPOSIT);
     expect(stakeInfo.isInitialized).to.be.true;
     console.log("Staker1: first deposit success.");
   });
