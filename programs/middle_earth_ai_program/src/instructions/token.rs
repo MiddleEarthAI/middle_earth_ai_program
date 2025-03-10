@@ -150,6 +150,7 @@ pub fn stake_tokens(ctx: Context<StakeTokens>, deposit_amount: u64) -> Result<()
         .checked_add(deposit_amount)
         .ok_or(GameError::NotEnoughTokens)?;
 
+
     // Update global total stake
     add_stake_to_game(&mut ctx.accounts.game, ctx.accounts.authority.key(), deposit_amount)?;
 

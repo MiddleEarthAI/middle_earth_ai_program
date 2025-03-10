@@ -1,6 +1,8 @@
 use crate::error::GameError;
 use crate::state::{Agent, Game};
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Transfer, Token, TokenAccount};
+use borsh::BorshDeserialize;
 
 pub fn register_agent(
     ctx: Context<RegisterAgent>,
@@ -30,8 +32,7 @@ pub fn register_agent(
 
     // Initialize the agent.
     agent_account.game = game_account.key();
-    // Even though the agent may eventually be controlled by a user,
-    // for registration purposes we record the game authority as the creator.
+    // For registration we record the game authority as the creator.
     agent_account.authority = ctx.accounts.authority.key();
     agent_account.id = agent_id;
     agent_account.x = x;
@@ -55,34 +56,54 @@ pub fn register_agent(
     agent_account.battle_start_time = None;
 
     // Register the agent in the global list with the provided name.
-    game_account
-        .agents
-        .push(crate::state::agent_info::AgentInfo {
-            key: agent_key,
-            name,
-        });
+    game_account.agents.push(crate::state::agent_info::AgentInfo {
+        key: agent_key,
+        name,
+    });
 
     Ok(())
 }
 
-/// Marks an agent as dead by setting its `is_alive` field to false.
-///
-/// **Access Control:** Only the game authority may call this instruction.
+/// Marks an agent as dead by setting its `is_alive` field to false and transfers its token balance to a winner.
+
 pub fn kill_agent(ctx: Context<KillAgent>) -> Result<()> {
-    // Only allow if the signer is the game authority.
     require!(
         ctx.accounts.authority.key() == ctx.accounts.game.authority,
         GameError::Unauthorized
     );
+
+    // Mark the agent as dead.
     let agent_account = &mut ctx.accounts.agent;
     agent_account.is_alive = false;
+
+    // Deserialize the token account data in a separate block so the borrow is dropped afterwards.
+    let agent_balance: u64 = {
+        let data = ctx.accounts.agent_token.data.borrow();
+        let mut slice = &data[..];
+        let token_account = TokenAccount::try_deserialize(&mut slice)
+            .map_err(|_| error!(GameError::NotEnoughTokens))?;
+        token_account.amount
+    };
+
+    msg!("Agent token balance: {}", agent_balance);
+
+    // Transfer the entire balance (if any)
+    if agent_balance > 0 {
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.agent_token.to_account_info(),
+            to: ctx.accounts.winner_token.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+        token::transfer(cpi_ctx, agent_balance)?;
+    }
+
     Ok(())
 }
 
-/// Sets an agent's cooldown, e.g. for testing or manual override.
-/// **Access Control:** Only the game authority may call this instruction.
+
+/// Sets an agent's cooldown (test-only instruction).
 pub fn set_agent_cooldown(ctx: Context<SetAgentCooldown>, new_next_move_time: i64) -> Result<()> {
-    // Only allow if the signer is the game authority.
     require!(
         ctx.accounts.authority.key() == ctx.accounts.game.authority,
         GameError::Unauthorized
@@ -92,10 +113,9 @@ pub fn set_agent_cooldown(ctx: Context<SetAgentCooldown>, new_next_move_time: i6
     Ok(())
 }
 
-// -------------------------
-// ACCOUNTS
-// -------------------------
-
+/// -------------------------
+/// ACCOUNTS
+/// -------------------------
 #[derive(Accounts)]
 #[instruction(agent_id: u8, x: i32, y: i32, name: String)]
 pub struct RegisterAgent<'info> {
@@ -127,21 +147,30 @@ pub struct KillAgent<'info> {
     #[account(mut, has_one = authority)]
     pub agent: Account<'info, Agent>,
 
-    // We add the game account so that we can check that the caller is the game authority.
     pub game: Account<'info, Game>,
 
     /// The caller must be the game authority.
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    /// CHECK: This is the agent's SPL token account.
+    /// It must be created with the game authority as its owner.
+    #[account(mut)]
+    pub agent_token: AccountInfo<'info>,
+
+    /// CHECK: This is the recipient's (winner's) SPL token account.
+    #[account(mut)]
+    pub winner_token: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
 }
+
 
 #[derive(Accounts)]
 pub struct SetAgentCooldown<'info> {
     #[account(mut, has_one = game)]
     pub agent: Account<'info, Agent>,
-
     pub game: Account<'info, Game>,
-
     /// The caller must be the game authority.
     #[account(mut)]
     pub authority: Signer<'info>,
