@@ -2,8 +2,6 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program, BN } from "@coral-xyz/anchor";
 import { MiddleEarthAiProgram } from "../target/types/middle_earth_ai_program";
 import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
-import { expect } from "chai";
-
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
@@ -12,6 +10,7 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { expect } from "chai";
 
 describe("Battle Contract Tests with Cooldowns", () => {
   const provider = anchor.AnchorProvider.local();
@@ -25,6 +24,8 @@ describe("Battle Contract Tests with Cooldowns", () => {
   let tokenMint: PublicKey;
 
   const tokenAccounts: { [agentId: number]: PublicKey } = {};
+  // Although we generate agent authorities for ATAs and airdrops,
+  // agent registration will be done solely by the game authority (provider.wallet).
   const agentAuthorities: { [agentId: number]: Keypair } = {};
 
   // Sample Agent IDs
@@ -37,7 +38,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
   const allianceB = { leader: 12, partner: 13 };
   const simpleBattle = { winner: 20, loser: 21 };
 
-  // We'll gather *all* agent IDs in one array for resets
+  // We'll gather all agent IDs in one array for resets.
   const ALL_AGENT_IDS = [
     allianceBattleAgents.singleAgent,
     allianceBattleAgents.allianceLeader,
@@ -53,11 +54,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
   // Derive agent PDA
   const deriveAgentPda = async (agentId: number): Promise<PublicKey> => {
     const [pda] = await PublicKey.findProgramAddress(
-      [
-        Buffer.from("agent"),
-        gamePda.toBuffer(),
-        Buffer.from([agentId]),
-      ],
+      [Buffer.from("agent"), gamePda.toBuffer(), Buffer.from([agentId])],
       program.programId
     );
     return pda;
@@ -76,7 +73,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
         .initializeGame(gameId.toNumber(), gameBump)
         .accounts({
           game: gamePda,
-          authority: provider.wallet.publicKey,
+          authority: provider.wallet.publicKey, // Game authority is the provider's wallet
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -100,7 +97,8 @@ describe("Battle Contract Tests with Cooldowns", () => {
     );
     console.log("Created token mint:", tokenMint.toBase58());
 
-    // Agents
+    // For each agent, create a token account (ATA) owned by the agent authority.
+    // These token accounts will be used later in battles.
     const initialMintAmount = 1_000_000_000_000;
     for (const id of ALL_AGENT_IDS) {
       const agentAuth = Keypair.generate();
@@ -140,7 +138,8 @@ describe("Battle Contract Tests with Cooldowns", () => {
   });
 
   before("Register Agents", async () => {
-    // For each agent, register with some default coords
+    // For each agent, register with some default coordinates.
+    // Only for registration, we use the game authority (provider.wallet) as the signer.
     const registerAgent = async (agentId: number, x: number, y: number, name: string) => {
       const agentPda = await deriveAgentPda(agentId);
       try {
@@ -152,12 +151,12 @@ describe("Battle Contract Tests with Cooldowns", () => {
           .accounts({
             game: gamePda,
             agent: agentPda,
-            authority: agentAuthorities[agentId].publicKey,
+            authority: provider.wallet.publicKey, // Use game authority here for registration
             systemProgram: SystemProgram.programId,
           })
-          .signers([agentAuthorities[agentId]])
+          // No extra signer required as provider.wallet is the default signer.
           .rpc();
-        console.log(`Agent ${name} registered.`);
+        console.log(`Agent ${name} registered by game authority.`);
       }
     };
 
@@ -265,10 +264,10 @@ describe("Battle Contract Tests with Cooldowns", () => {
       const singlePda = await deriveAgentPda(singleAgentId);
       const leaderPda = await deriveAgentPda(allianceLeaderId);
       const partnerPda = await deriveAgentPda(alliancePartnerId);
-
       const beforeSolo = await getAccount(connection, tokenAccounts[singleAgentId]);
       const beforeLeader = await getAccount(connection, tokenAccounts[allianceLeaderId]);
       const beforePartner = await getAccount(connection, tokenAccounts[alliancePartnerId]);
+
       await program.methods
         .resolveBattleAgentVsAlliance(new BN(25), false)
         .accounts({
@@ -376,9 +375,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           authority: provider.wallet.publicKey,
         })
-        .signers([
-          agentAuthorities[loserId]
-        ])
+        .signers([agentAuthorities[loserId]])
         .rpc();
 
       const finalWinner = await getAccount(connection, tokenAccounts[winnerId]);
@@ -396,7 +393,7 @@ describe("Battle Contract Tests with Cooldowns", () => {
     it("Fails to resolve a simple battle with unauthorized wallet", async () => {
       const winnerPda = await deriveAgentPda(simpleBattle.winner);
       const loserPda = await deriveAgentPda(simpleBattle.loser);
-
+      var reverted = false;
       await program.methods
         .resolveBattleSimple(new BN(20))
         .accounts({
@@ -409,14 +406,14 @@ describe("Battle Contract Tests with Cooldowns", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           authority: unauthorizedWallet.publicKey, // Unauthorized authority
         })
-        .signers([
-          unauthorizedWallet
-        ])
+        .signers([unauthorizedWallet])
         .rpc()
         .catch((err: any) => {
           console.log("Unauthorized attempt blocked:", err.message);
-          expect(err.message).to.include("Unauthorized");
+          reverted = true;
         });
+        expect(reverted).to.be.true;
+
     });
   });
 });
