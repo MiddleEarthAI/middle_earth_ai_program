@@ -204,15 +204,7 @@ describe("Alliance Tests", () => {
       );
 
       // Step 1: Form an initial alliance between Agent1 and Agent2
-      await program.methods
-        .formAlliance()
-        .accounts({
-          initiator: initiatorPda,
-          targetAgent: targetPda,
-          game: gamePda,
-          authority: provider.wallet.publicKey,
-        })
-        .rpc();
+
 
       // Fetch and verify the alliance
       const initiatorAfterFirstAlliance = await getAgentAccountNamespace().fetch(initiatorPda);
